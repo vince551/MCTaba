@@ -41,8 +41,8 @@ service cloud.firestore {
 
       match /books/{bookId} {
         allow read: if isActiveMember(libraryId);
-        allow create, update: if hasRole(libraryId, ['owner', 'admin', 'librarian']);
-        allow delete: if hasRole(libraryId, ['owner', 'admin']);
+        // Catalogue mutations must go through the trusted API so copy counts stay consistent.
+        allow write: if false;
       }
 
       match /copies/{copyId} {
