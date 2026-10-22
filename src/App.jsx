@@ -492,12 +492,30 @@ function Subscriptions({ notify, library }) {
   const chooseCycle = async (billingCycle) => {
     setCycle(billingCycle);
     try {
-      const result = await apiRequest('/api/subscriptions', { libraryId: library.id, billingCycle });
+      if (!subscription?.trialUsedAt && !['active', 'trialing'].includes(subscription?.status)) {
+        const trial = await apiRequest('/api/subscriptions', { action: 'startTrial', libraryId: library.id });
+        await apiRequest('/api/subscriptions', { action: 'selectCycle', libraryId: library.id, billingCycle });
+        notify(trial.message || 'Your 14-day free trial has started.');
+        return;
+      }
+      const result = await apiRequest('/api/subscriptions', { action: 'selectCycle', libraryId: library.id, billingCycle });
       notify(result.message || 'Billing cycle saved. Payment is not activated yet.');
     } catch (error) {
       notify(error.message || 'Could not save the billing cycle.');
     }
   };
+  const startCheckout = async () => {
+    try {
+      const result = await apiRequest('/api/subscriptions', {
+        action: 'createCheckout', libraryId: library.id, billingCycle: cycle,
+      });
+      if (!result.checkoutUrl) throw new Error('Checkout URL was not returned by the payment provider.');
+      window.location.assign(result.checkoutUrl);
+    } catch (error) {
+      notify(error.message || 'Secure checkout is not available yet.');
+    }
+  };
+  const trialAvailable = !subscription?.trialUsedAt && !['active', 'trialing'].includes(subscription?.status);
   return <div className="subscription-page">
     <section className="subscription-hero"><div className="subscription-hero-copy"><span className="eyebrow">MCTABA BILLING</span><h2>Your library. Your plan.</h2><p>Review weekly, monthly and yearly billing cycles for {library.name}. Subscription activation and payment verification must be handled securely by Mctaba.</p></div>
       <div className="subscription-status-card"><div className="subscription-status-top"><CreditCard size={18}/><span>Current subscription</span></div><strong>{subscription?.planName || (subscription?.billingCycle ? subscription.billingCycle.charAt(0).toUpperCase() + subscription.billingCycle.slice(1) + ' billing' : 'No active plan')}</strong><Badge tone={status === 'active' ? 'success' : status === 'expired' || status === 'past_due' ? 'danger' : 'warning'}>{status.replaceAll('_', ' ')}</Badge><div className="subscription-status-meta"><span>Renewal / expiry</span><strong>{expiryLabel}</strong></div></div>
@@ -507,8 +525,9 @@ function Subscriptions({ notify, library }) {
     <div className="subscription-plans">{plans.map((plan) => <article key={plan.id} className={'subscription-plan' + (cycle === plan.id ? ' subscription-plan--selected' : '') + (plan.popular ? ' subscription-plan--popular' : '')}>
       {plan.popular && <span className="subscription-popular">MOST FLEXIBLE</span>}<div className="subscription-plan-icon"><CalendarDays size={19}/></div><h3>{plan.name}</h3><p>{plan.description}</p><div className="subscription-price">Price to be configured <small>/ {plan.duration}</small></div>
       <ul><li><Check size={15}/> Library workspace access</li><li><Check size={15}/> Inventory and circulation tools</li><li><Check size={15}/> Renewal and expiry tracking</li></ul>
-      <button className={'button ' + (cycle === plan.id ? 'button--primary' : 'button--secondary') + ' subscription-select'} onClick={() => chooseCycle(plan.id)}>{cycle === plan.id ? 'Selected for review' : 'Choose ' + plan.name.toLowerCase()}</button>
+      <button className={'button ' + (cycle === plan.id ? 'button--primary' : 'button--secondary') + ' subscription-select'} onClick={() => chooseCycle(plan.id)}>{trialAvailable ? 'Start 14-day free trial' : cycle === plan.id ? 'Selected for review' : 'Choose ' + plan.name.toLowerCase()}</button>
     </article>)}</div>
+    <div className="subscription-notice"><CreditCard size={18}/><div><strong>Payment and renewal</strong><span>IntaSend checkout is available once the platform administrator configures the weekly, monthly and yearly KES prices. No amount is guessed, and checkout will remain disabled by the API until pricing is set.</span></div><button className="button button--secondary" onClick={startCheckout}>Continue to secure checkout</button></div>
     <section className="panel subscription-history"><div className="panel-heading"><div><h3>Subscription record & payment history</h3><p>Subscription status for {library.name}; verified payment records will appear after a payment provider is connected.</p></div><Badge tone={loaded && subscription ? 'success' : 'neutral'}>{loaded && subscription ? 'Record found' : 'Awaiting setup'}</Badge></div>
       {!loaded ? <div className="empty-state"><Clock3 size={25}/><strong>Loading billing record</strong><span>Checking the secure subscription record.</span></div> : subscription ? <div className="subscription-record"><div><span>Plan</span><strong>{subscription.planName || subscription.planId || 'Library plan'}</strong></div><div><span>Billing cycle</span><strong>{subscription.billingCycle || 'Not recorded'}</strong></div><div><span>Status</span><strong>{status.replaceAll('_', ' ')}</strong></div><div><span>Renewal / expiry</span><strong>{expiryLabel}</strong></div></div> : <div className="empty-state"><CreditCard size={27}/><strong>No billing record yet</strong><span>The secure billing backend must create this record before subscription payments can be processed.</span></div>}
     </section>
