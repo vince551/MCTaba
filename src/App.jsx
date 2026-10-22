@@ -213,7 +213,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
 
         {activePage === 'Overview' && <Overview books={books} setActivePage={setActivePage} notify={notify} range={range} setRange={setRange}/>}
         {activePage === 'Inventory' && <Inventory books={filteredBooks} query={query} setQuery={setQuery} onAdd={() => setShowAddBook(true)} onExport={exportBooks} notify={notify}/>}
-        {activePage === 'Circulation' && <Circulation notify={notify}/>}
+        {activePage === 'Circulation' && <Circulation notify={notify} library={library} user={user} />}
         {activePage === 'Members' && <Members notify={notify} library={library} user={user} />}
         {activePage === 'Reports' && <Reports range={range} setRange={setRange} notify={notify}/>}
         {activePage === 'Notifications' && <Notifications notify={notify}/>}
@@ -279,8 +279,103 @@ function Inventory({ books, query, setQuery, onAdd, onExport, notify }) {
   return <><div className="inventory-toolbar"><div className="inventory-search"><Search size={17}/><input placeholder="Search title, author, ISBN..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>/</kbd></div><button className="button button--secondary" onClick={() => notify('Category filters will be connected to the live catalogue.')}><Filter size={15}/> Filters</button><button className="button button--secondary" onClick={onExport}><Download size={15}/> Export</button><button className="button button--primary" onClick={onAdd}><Plus size={16}/> Add a book</button></div><section className="panel table-panel"><div className="panel-heading"><div><h3>All books <span className="subtle-count">{books.length}</span></h3><p>Manage titles in your collection</p></div><button className="icon-button" aria-label="More inventory actions" onClick={() => notify('More inventory actions are coming soon.')}><Ellipsis size={20}/></button></div><div className="table-scroll"><table><thead><tr><th>BOOK</th><th>ISBN</th><th>CATEGORY</th><th>COPIES</th><th>AVAILABILITY</th><th/></tr></thead><tbody>{books.map(book => <tr key={book.id}><td><div className="table-book"><div className={`table-book-cover book-cover--${book.color}`}><BookOpen size={17}/></div><div><strong>{book.title}</strong><span>{book.author}</span></div></div></td><td className="isbn-cell">{book.isbn}</td><td><span className="category-pill">{book.category}</span></td><td><strong>{book.copies}</strong></td><td><div className="availability-cell"><span className="availability-track"><i style={{ width: `${book.copies ? (book.available / book.copies) * 100 : 0}%` }}/></span><span>{book.available}/{book.copies}</span></div></td><td><button className="icon-button" aria-label={`Book actions for ${book.title}`} onClick={() => notify(`Book actions for “${book.title}” will be enabled with live data.`)}><Ellipsis size={18}/></button></td></tr>)}</tbody></table>{books.length === 0 && <div className="empty-state"><BookOpen size={28}/><strong>No books found</strong><span>Try a different search or add a new book.</span></div>}</div><div className="table-footer"><span>Showing {books.length} {books.length === 1 ? 'title' : 'titles'}</span><span>Live Firestore inventory</span></div></section></>;
 }
 
-function Circulation({ notify }) {
-  return <><div className="stats-grid stats-grid--three"><article className="stat-card"><div className="stat-top"><span>Active loans</span><div className="stat-icon stat-icon--green"><ArrowLeftRight size={18}/></div></div><div className="stat-value">186</div><div className="stat-bottom"><span className="stat-detail">Currently borrowed</span></div></article><article className="stat-card"><div className="stat-top"><span>Due today</span><div className="stat-icon stat-icon--orange"><Clock3 size={18}/></div></div><div className="stat-value">8</div><div className="stat-bottom"><span className="stat-detail">Return reminders needed</span></div></article><article className="stat-card"><div className="stat-top"><span>Overdue</span><div className="stat-icon stat-icon--red"><CircleAlert size={18}/></div></div><div className="stat-value">12</div><div className="stat-bottom"><span className="stat-alert">Requires follow-up</span></div></article></div><section className="panel table-panel"><div className="panel-heading"><div><h3>Recent loans</h3><p>Track books currently out with readers</p></div><button className="button button--primary" onClick={() => notify('Checkout workflow will be connected to Firebase transactions next.') }><ScanLine size={16}/> New checkout</button></div><div className="table-scroll"><table><thead><tr><th>BOOK & MEMBER</th><th>DUE DATE</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody>{initialLoans.map((loan,i) => <tr key={loan.book}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${['sage','blue','peach','lavender'][i]}`}>{loan.initials}</div><div><strong>{loan.book}</strong><span>{loan.member}</span></div></div></td><td>{loan.due}</td><td><Badge tone={loan.state === 'Overdue' ? 'danger' : loan.state === 'Due today' ? 'warning' : 'success'}>{loan.state}</Badge></td><td><button className="text-link" onClick={() => notify(`Return processing for “${loan.book}” requires a connected backend.`)}>Process return <ArrowRight size={13}/></button></td></tr>)}</tbody></table></div><div className="table-footer"><span>Showing 4 sample loans</span><span>Demo data · not saved to a database</span></div></section></>;
+function Circulation({ notify, library, user }) {
+  const [books, setBooks] = useState([]);
+  const [readers, setReaders] = useState([]);
+  const [copies, setCopies] = useState([]);
+  const [loans, setLoans] = useState([]);
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [selectedCopy, setSelectedCopy] = useState('');
+  const [selectedReader, setSelectedReader] = useState('');
+  const [dueAt, setDueAt] = useState(() => new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 16));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!db || !library?.id) return undefined;
+    const base = ['libraries', library.id];
+    const unsubscribers = [
+      onSnapshot(collection(db, ...base, 'books'), (snapshot) => setBooks(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
+      onSnapshot(collection(db, ...base, 'readers'), (snapshot) => setReaders(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
+      onSnapshot(collection(db, ...base, 'copies'), (snapshot) => setCopies(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
+      onSnapshot(collection(db, ...base, 'loans'), (snapshot) => setLoans(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
+        () => notify('Could not load circulation records. Check your library role and Firestore rules.')),
+    ];
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [library?.id]);
+
+  const activeLoans = loans.filter((loan) => loan.status === 'active');
+  const availableCopies = copies.filter((copy) => copy.status === 'available');
+  const bookById = new Map(books.map((book) => [book.id, book]));
+  const readerById = new Map(readers.map((reader) => [reader.id, reader]));
+  const dueToday = activeLoans.filter((loan) => loan.dueAt?.toDate && loan.dueAt.toDate().toDateString() === new Date().toDateString()).length;
+  const overdue = activeLoans.filter((loan) => loan.dueAt?.toDate && loan.dueAt.toDate().getTime() < Date.now()).length;
+
+  const checkout = async (event) => {
+    event.preventDefault();
+    if (!selectedCopy || !selectedReader || !dueAt) {
+      notify('Choose an available copy, a reader and a due date.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const checkoutBook = httpsCallable(functions, 'checkoutBook');
+      await checkoutBook({ libraryId: library.id, copyId: selectedCopy, readerId: selectedReader, dueAt: new Date(dueAt).toISOString() });
+      setShowCheckout(false);
+      setSelectedCopy('');
+      setSelectedReader('');
+      notify('Book checked out. Firestore circulation records are updated.');
+    } catch (error) {
+      notify(error.message || 'Checkout failed. Verify that the reader is active and the copy is available.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const returnLoan = async (loanId) => {
+    setSaving(true);
+    try {
+      const returnBook = httpsCallable(functions, 'returnBook');
+      await returnBook({ libraryId: library.id, loanId });
+      notify('Book returned and its physical copy released.');
+    } catch (error) {
+      notify(error.message || 'Could not process this return.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <>
+    <div className="stats-grid stats-grid--three">
+      <article className="stat-card"><div className="stat-top"><span>Active loans</span><div className="stat-icon stat-icon--green"><ArrowLeftRight size={18}/></div></div><div className="stat-value">{activeLoans.length}</div><div className="stat-bottom"><span className="stat-detail">Currently borrowed</span></div></article>
+      <article className="stat-card"><div className="stat-top"><span>Due today</span><div className="stat-icon stat-icon--orange"><Clock3 size={18}/></div></div><div className="stat-value">{dueToday}</div><div className="stat-bottom"><span className="stat-detail">Return reminders needed</span></div></article>
+      <article className="stat-card"><div className="stat-top"><span>Overdue</span><div className="stat-icon stat-icon--red"><CircleAlert size={18}/></div></div><div className="stat-value">{overdue}</div><div className="stat-bottom"><span className="stat-alert">Requires follow-up</span></div></article>
+    </div>
+    {showCheckout && <form className="panel circulation-checkout" onSubmit={checkout}>
+      <div className="panel-heading"><div><h3>New checkout</h3><p>Issue an available physical copy to an active reader.</p></div><button className="icon-button" type="button" aria-label="Close checkout form" onClick={() => setShowCheckout(false)}><X size={18}/></button></div>
+      <div className="circulation-form-grid">
+        <label>Available copy<select required value={selectedCopy} onChange={(event) => setSelectedCopy(event.target.value)}><option value="">Choose a book copy</option>{availableCopies.map((copy) => <option key={copy.id} value={copy.id}>{bookById.get(copy.bookId)?.title || 'Unknown title'} · Copy {copy.copyNumber || '—'}</option>)}</select></label>
+        <label>Reader<select required value={selectedReader} onChange={(event) => setSelectedReader(event.target.value)}><option value="">Choose a reader</option>{readers.filter((reader) => reader.status === 'active').map((reader) => <option key={reader.id} value={reader.id}>{reader.name}</option>)}</select></label>
+        <label>Due date and time<input required type="datetime-local" value={dueAt} min={new Date().toISOString().slice(0, 16)} onChange={(event) => setDueAt(event.target.value)}/></label>
+      </div>
+      {availableCopies.length === 0 && <p className="circulation-help">No copies are currently available. Add a book with copies in Inventory first.</p>}
+      {readers.filter((reader) => reader.status === 'active').length === 0 && <p className="circulation-help">Register an active reader in Members before checking out books.</p>}
+      <div className="modal-actions"><button className="button button--secondary" type="button" onClick={() => setShowCheckout(false)}>Cancel</button><button className="button button--primary" type="submit" disabled={saving || !availableCopies.length || !readers.some((reader) => reader.status === 'active')}><ScanLine size={16}/>{saving ? 'Processing…' : 'Confirm checkout'}</button></div>
+    </form>}
+    <section className="panel table-panel">
+      <div className="panel-heading"><div><h3>Current loans <span className="subtle-count">{activeLoans.length}</span></h3><p>Live circulation records for {library.name}</p></div><button className="button button--primary" onClick={() => setShowCheckout((open) => !open)}><ScanLine size={16}/> New checkout</button></div>
+      <div className="table-scroll"><table><thead><tr><th>BOOK & MEMBER</th><th>DUE DATE</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody>
+        {activeLoans.map((loan, index) => {
+          const book = bookById.get(loan.bookId);
+          const reader = readerById.get(loan.readerId);
+          const due = loan.dueAt?.toDate ? loan.dueAt.toDate() : null;
+          const isOverdue = due && due.getTime() < Date.now();
+          const isDueToday = due && due.toDateString() === new Date().toDateString();
+          return <tr key={loan.id}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${['sage', 'blue', 'peach', 'lavender'][index % 4]}`}>{(reader?.name || 'R').split(/\s+/).slice(0,2).map((part) => part[0]).join('').toUpperCase()}</div><div><strong>{book?.title || 'Book title unavailable'}</strong><span>{reader?.name || 'Reader unavailable'}</span></div></div></td><td>{due ? due.toLocaleString() : 'No due date'}</td><td><Badge tone={isOverdue ? 'danger' : isDueToday ? 'warning' : 'success'}>{isOverdue ? 'Overdue' : isDueToday ? 'Due today' : 'On loan'}</Badge></td><td><button className="text-link" disabled={saving} onClick={() => returnLoan(loan.id)}>Process return <ArrowRight size={13}/></button></td></tr>;
+        })}
+      </tbody></table>{activeLoans.length === 0 && <div className="empty-state"><ArrowLeftRight size={28}/><strong>No active loans</strong><span>Use New checkout to issue an available copy to a registered reader.</span></div>}</div>
+      <div className="table-footer"><span>{activeLoans.length} active {activeLoans.length === 1 ? 'loan' : 'loans'}</span><span>Live Firestore + transactional Cloud Functions</span></div>
+    </section>
+  </>;
 }
 
 function Members({ notify, library, user }) {
