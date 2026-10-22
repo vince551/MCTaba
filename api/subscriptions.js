@@ -84,10 +84,6 @@ async function createCheckout(database, identity, libraryId, library, billingCyc
   }
   const subscriptionRef = database.doc(`subscriptions/${libraryId}`);
   const existing = await subscriptionRef.get();
-  const previous = existing.exists ? existing.data() : {};
-  if (previous.status === 'trialing' && previous.currentPeriodEnd?.toMillis?.() > Date.now()) {
-    // A trial can be upgraded, but it is not extended by starting checkout.
-  }
   const apiRef = `mctaba-${libraryId.slice(0, 36)}-${randomUUID()}`;
   const redirectUrl = new URL('/?billing=return', baseUrl).toString();
   const payload = {
