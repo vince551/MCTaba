@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { addDoc, collection, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import AuthPortal from './AuthPortal.jsx';
 import {
@@ -55,6 +55,7 @@ const navGroups = [
   { label: 'MANAGE', items: [
     { id: 'Reports', label: 'Reports & insights', icon: FileBarChart },
     { id: 'Notifications', label: 'Notifications', icon: Bell, count: '3' },
+    { id: 'Subscriptions', label: 'Subscription & billing', icon: CreditCard },
     { id: 'Settings', label: 'Library settings', icon: Settings2 },
   ]},
 ];
@@ -132,6 +133,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
     Reports: 'Understand how your library is being used.',
     Notifications: 'Keep up with reminders and important updates.',
     Settings: 'Manage your library profile and workspace preferences.',
+    Subscriptions: 'Manage your plan, renewal cycle and subscription status.',
   }[activePage];
 
   const exportBooks = () => {
@@ -218,6 +220,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
         {activePage === 'Reports' && <Reports range={range} setRange={setRange} notify={notify}/>}
         {activePage === 'Notifications' && <Notifications notify={notify}/>}
         {activePage === 'Settings' && <Settings notify={notify}/>}
+        {activePage === 'Subscriptions' && <Subscriptions notify={notify} library={library} />}
       </div>
       <footer className="app-footer"><span>© 2026 Mctaba</span><span><span className="footer-status"/> All systems previewing normally</span><span>Made for the love of libraries <BookOpen size={13}/></span></footer>
     </main>
@@ -467,6 +470,43 @@ function Notifications({ notify }) {
     { icon: CheckCircle2, tone: 'green', title: 'Weekly summary ready', body: 'Your weekly circulation snapshot is available.', time: 'Oct 20, 2026', action: 'View reports' },
   ];
   return <section className="panel notification-list-panel"><div className="panel-heading"><div><h3>Recent notifications</h3><p>Updates from your library workspace</p></div><button className="text-link" onClick={() => notify('Notifications are sample items until Firebase is configured.')}>Mark all as read <Check size={14}/></button></div>{items.map((item,i) => { const Icon = item.icon; return <div className="notification-row" key={item.title}><div className={`attention-symbol attention-symbol--${item.tone}`}><Icon size={17}/></div><div className="notification-content"><strong>{item.title}</strong><p>{item.body}</p><span>{item.time}</span></div>{i < 3 && <span className="unread-dot"/>}<button className="text-link" onClick={() => notify(`“${item.title}” will open the related records when connected.`)}>{item.action} <ArrowRight size={13}/></button></div>;})}</section>;
+}
+
+function Subscriptions({ notify, library }) {
+  const [subscription, setSubscription] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [cycle, setCycle] = useState('monthly');
+  useEffect(() => {
+    if (!db || !library?.id) { setLoaded(true); return undefined; }
+    return onSnapshot(doc(db, 'subscriptions', library.id), (snap) => {
+      const data = snap.exists() ? snap.data() : null;
+      setSubscription(data); setLoaded(true);
+      if (data?.billingCycle) setCycle(data.billingCycle);
+    }, () => { setSubscription(null); setLoaded(true); });
+  }, [library?.id]);
+  const expiry = subscription?.currentPeriodEnd?.toDate ? subscription.currentPeriodEnd.toDate() : subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
+  const expiryLabel = expiry && !Number.isNaN(expiry.getTime()) ? expiry.toLocaleDateString() : 'Not available yet';
+  const plans = [
+    { id: 'weekly', name: 'Weekly', duration: '7 days', description: 'Flexible week-to-week access' },
+    { id: 'monthly', name: 'Monthly', duration: '30 days', description: 'A simple monthly renewal', popular: true },
+    { id: 'yearly', name: 'Yearly', duration: '365 days', description: 'One payment for a full year' },
+  ];
+  const status = subscription?.status || 'not-configured';
+  return <div className="subscription-page">
+    <section className="subscription-hero"><div className="subscription-hero-copy"><span className="eyebrow">MCTABA BILLING</span><h2>Your library. Your plan.</h2><p>Review weekly, monthly and yearly billing cycles for {library.name}. Subscription activation and payment verification must be handled securely by Mctaba.</p></div>
+      <div className="subscription-status-card"><div className="subscription-status-top"><CreditCard size={18}/><span>Current subscription</span></div><strong>{subscription?.planName || 'No active plan'}</strong><Badge tone={status === 'active' ? 'success' : status === 'expired' || status === 'past_due' ? 'danger' : 'warning'}>{status.replaceAll('_', ' ')}</Badge><div className="subscription-status-meta"><span>Renewal / expiry</span><strong>{expiryLabel}</strong></div></div>
+    </section>
+    <div className="subscription-notice"><ShieldCheck size={18}/><div><strong>Secure billing by design</strong><span>Choosing a billing cycle does not charge you or activate a subscription. Paid access must only activate after verified payment confirmation.</span></div></div>
+    <SectionHeading eyebrow="BILLING CYCLE" title="Choose how you pay" subtitle="Pricing is intentionally left configurable until Mctaba's platform pricing is confirmed." />
+    <div className="subscription-plans">{plans.map((plan) => <article key={plan.id} className={'subscription-plan' + (cycle === plan.id ? ' subscription-plan--selected' : '') + (plan.popular ? ' subscription-plan--popular' : '')}>
+      {plan.popular && <span className="subscription-popular">MOST FLEXIBLE</span>}<div className="subscription-plan-icon"><CalendarDays size={19}/></div><h3>{plan.name}</h3><p>{plan.description}</p><div className="subscription-price">Price to be configured <small>/ {plan.duration}</small></div>
+      <ul><li><Check size={15}/> Library workspace access</li><li><Check size={15}/> Inventory and circulation tools</li><li><Check size={15}/> Renewal and expiry tracking</li></ul>
+      <button className={'button ' + (cycle === plan.id ? 'button--primary' : 'button--secondary') + ' subscription-select'} onClick={() => { setCycle(plan.id); notify(plan.name + ' cycle selected for review. No payment was taken; secure payment setup is still required.'); }}>{cycle === plan.id ? 'Selected for review' : 'Choose ' + plan.name.toLowerCase()}</button>
+    </article>)}</div>
+    <section className="panel subscription-history"><div className="panel-heading"><div><h3>Subscription & payment history</h3><p>Verified payments and renewals for {library.name}</p></div><Badge tone={loaded && subscription ? 'success' : 'neutral'}>{loaded && subscription ? 'Record found' : 'Awaiting setup'}</Badge></div>
+      {!loaded ? <div className="empty-state"><Clock3 size={25}/><strong>Loading billing record</strong><span>Checking the secure subscription record.</span></div> : subscription ? <div className="subscription-record"><div><span>Plan</span><strong>{subscription.planName || subscription.planId || 'Library plan'}</strong></div><div><span>Billing cycle</span><strong>{subscription.billingCycle || 'Not recorded'}</strong></div><div><span>Status</span><strong>{status.replaceAll('_', ' ')}</strong></div><div><span>Renewal / expiry</span><strong>{expiryLabel}</strong></div></div> : <div className="empty-state"><CreditCard size={27}/><strong>No billing record yet</strong><span>The secure billing backend must create this record before subscription payments can be processed.</span></div>}
+    </section>
+  </div>;
 }
 
 function Settings({ notify }) {
