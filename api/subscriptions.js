@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { authenticate, db, FieldValue, Timestamp, respondError, text } from './_lib/admin.js';
 import { allowMethods, bodyObject } from './_lib/http.js';
 
@@ -10,12 +10,6 @@ const CYCLE_ENV = {
 };
 const PERIOD_DAYS = { weekly: 7, monthly: 30, yearly: 365 };
 const INTASEND_API = 'https://api.intasend.com/api/v1/';
-
-function safeEqual(left, right) {
-  const a = Buffer.from(String(left || ''));
-  const b = Buffer.from(String(right || ''));
-  return a.length === b.length && timingSafeEqual(a, b);
-}
 
 function configuredPrice(cycle) {
   const raw = process.env[CYCLE_ENV[cycle]];
@@ -152,13 +146,6 @@ export default async function handler(req, res) {
   if (!allowMethods(req, res, ['POST'])) return;
   try {
     const input = bodyObject(req.body);
-    if (input.action === 'intasendWebhook') {
-      const expectedChallenge = process.env.INTASEND_WEBHOOK_CHALLENGE;
-      if (!expectedChallenge) return res.status(503).json({ error: 'Payment webhook is not configured.' });
-      if (!safeEqual(input.challenge, expectedChallenge)) return res.status(401).json({ error: 'Invalid webhook challenge.' });
-      return res.status(400).json({ error: 'Use the dedicated IntaSend webhook endpoint.' });
-    }
-
     const identity = await authenticate(req);
     const libraryId = text(input.libraryId, 'Library ID', 140);
     const database = db();
