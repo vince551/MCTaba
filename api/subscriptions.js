@@ -24,27 +24,39 @@ export default async function handler(req, res) {
     }
     const subscriptionRef = database.doc(`subscriptions/${libraryId}`);
     const existing = await subscriptionRef.get();
-    const previousStatus = existing.exists ? existing.get('status') : null;
+    const previous = existing.exists ? existing.data() : null;
     const now = FieldValue.serverTimestamp();
-    const record = {
-      libraryId,
-      ownerId: identity.uid,
-      libraryName: library.get('name') || '',
-      billingCycle,
-      status: 'awaiting_payment_setup',
-      paymentStatus: 'not_started',
-      amount: null,
-      currency: 'KES',
-      provider: null,
-      updatedAt: now,
-      ...(existing.exists ? {} : { createdAt: now }),
-      ...(previousStatus === 'active' ? { previousActivePeriodPreserved: true } : {}),
-    };
+    const record = previous?.status === 'active'
+      ? {
+          libraryId,
+          ownerId: identity.uid,
+          libraryName: library.get('name') || '',
+          requestedBillingCycle: billingCycle,
+          billingChangeStatus: 'awaiting_payment_setup',
+          updatedAt: now,
+        }
+      : {
+          libraryId,
+          ownerId: identity.uid,
+          libraryName: library.get('name') || '',
+          billingCycle,
+          status: 'awaiting_payment_setup',
+          paymentStatus: 'not_started',
+          amount: null,
+          currency: 'KES',
+          provider: null,
+          updatedAt: now,
+          ...(existing.exists ? {} : { createdAt: now }),
+        };
     await subscriptionRef.set(record, { merge: true });
     await libraryRef.update({ updatedAt: now });
     return res.status(200).json({
-      libraryId, billingCycle, status: 'awaiting_payment_setup',
-      message: 'Billing cycle saved. Payment activation is disabled until a verified payment provider is configured.',
+      libraryId,
+      billingCycle,
+      status: previous?.status === 'active' ? 'active' : 'awaiting_payment_setup',
+      message: previous?.status === 'active'
+        ? 'Your current active subscription was preserved. The requested billing change is saved but will not take effect until payment is verified.'
+        : 'Billing cycle saved. Payment activation is disabled until a verified payment provider is configured.',
     });
   } catch (error) {
     return respondError(res, error);
