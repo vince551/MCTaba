@@ -11,6 +11,12 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/libraries/$(libraryId)/memberships/$(request.auth.uid)).data.status == 'active';
     }
 
+    function hasCurrentSubscription(libraryId) {
+      return exists(/databases/$(database)/documents/subscriptions/$(libraryId))
+        && get(/databases/$(database)/documents/subscriptions/$(libraryId)).data.status in ['active', 'trialing']
+        && get(/databases/$(database)/documents/subscriptions/$(libraryId)).data.currentPeriodEnd > request.time;
+    }
+
     function hasRole(libraryId, roles) {
       return isActiveMember(libraryId)
         && get(/databases/$(database)/documents/libraries/$(libraryId)/memberships/$(request.auth.uid)).data.role in roles;
@@ -40,36 +46,36 @@ service cloud.firestore {
       }
 
       match /books/{bookId} {
-        allow read: if isActiveMember(libraryId);
-        allow create, update: if hasRole(libraryId, ['owner', 'admin', 'librarian']);
-        allow delete: if hasRole(libraryId, ['owner', 'admin']);
+        allow read: if isActiveMember(libraryId) && hasCurrentSubscription(libraryId);
+        // Catalogue mutations must go through the trusted API so copy counts stay consistent.
+        allow write: if false;
       }
 
       match /copies/{copyId} {
-        allow read: if isActiveMember(libraryId);
+        allow read: if isActiveMember(libraryId) && hasCurrentSubscription(libraryId);
         // Copy status changes should be implemented through validated circulation operations.
         allow write: if false;
       }
 
       match /readers/{readerId} {
-        allow read: if hasRole(libraryId, ['owner', 'admin', 'librarian']);
-        allow create, update: if hasRole(libraryId, ['owner', 'admin', 'librarian']);
-        allow delete: if hasRole(libraryId, ['owner', 'admin']);
+        allow read: if hasCurrentSubscription(libraryId) && hasRole(libraryId, ['owner', 'admin', 'librarian']);
+        allow create, update: if hasCurrentSubscription(libraryId) && hasRole(libraryId, ['owner', 'admin', 'librarian']);
+        allow delete: if hasCurrentSubscription(libraryId) && hasRole(libraryId, ['owner', 'admin']);
       }
 
       match /loans/{loanId} {
-        allow read: if hasRole(libraryId, ['owner', 'admin', 'librarian']);
+        allow read: if hasCurrentSubscription(libraryId) && hasRole(libraryId, ['owner', 'admin', 'librarian']);
         // Loan transitions must use trusted, transaction-based backend operations.
         allow write: if false;
       }
 
       match /reservations/{reservationId} {
-        allow read: if isActiveMember(libraryId);
+        allow read: if isActiveMember(libraryId) && hasCurrentSubscription(libraryId);
         allow write: if false;
       }
 
       match /notifications/{notificationId} {
-        allow read: if isActiveMember(libraryId)
+        allow read: if isActiveMember(libraryId) && hasCurrentSubscription(libraryId)
           && resource.data.recipientId == request.auth.uid;
         allow write: if false;
       }
@@ -84,6 +90,11 @@ service cloud.firestore {
       // Billing state is managed by trusted backend functions and payment webhooks.
       allow read: if signedIn()
         && resource.data.ownerId == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /subscriptionPayments/{paymentId} {
+      allow read: if signedIn() && resource.data.ownerId == request.auth.uid;
       allow write: if false;
     }
 

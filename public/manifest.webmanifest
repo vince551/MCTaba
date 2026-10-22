@@ -1,0 +1,25 @@
+{
+  "name": "Mctaba — Library Management",
+  "short_name": "Mctaba",
+  "description": "Manage library books, members, circulation and insights in one workspace.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f8f6",
+  "theme_color": "#173f35",
+  "categories": [
+    "business",
+    "education",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/icons/mctaba-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

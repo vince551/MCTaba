@@ -370,3 +370,24 @@ th:last-child, td:last-child { padding-right: 17px; text-align: right; }
 .member-table-name span { color: #89958c; font-size: 10px; overflow-wrap: anywhere; }
 .button:disabled, .text-link:disabled { opacity: .55; cursor: wait; }
 @media (max-width: 760px) { .circulation-form-grid { grid-template-columns: 1fr; } .circulation-checkout { padding: 15px; } }
+
+/* Subscription and billing */
+.subscription-page{display:flex;flex-direction:column;gap:22px}
+.subscription-hero{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(250px,.8fr);gap:22px;align-items:stretch;padding:26px;border:1px solid #dfe9e1;border-radius:17px;background:linear-gradient(125deg,#f0f7f1,#fff 72%)}
+.subscription-hero-copy h2{margin:11px 0 9px;color:#21372b;font-family:Manrope,sans-serif;font-size:clamp(24px,2.6vw,34px);letter-spacing:-1px}
+.subscription-hero-copy p{max-width:620px;margin:0;color:#718077;font-size:12px;line-height:1.8}
+.subscription-status-card{display:flex;flex-direction:column;align-items:flex-start;gap:11px;min-width:0;padding:18px;border:1px solid #e3eae3;border-radius:13px;background:#fff}
+.subscription-status-top{display:flex;align-items:center;gap:8px;color:#6e7d72;font-size:11px}.subscription-status-card>strong{color:#25392e;font-size:19px}
+.subscription-status-meta{display:flex;flex-direction:column;gap:4px;padding-top:10px;margin-top:2px;border-top:1px solid #edf0ed;width:100%}
+.subscription-status-meta span,.subscription-record span{color:#89958c;font-size:10px}.subscription-status-meta strong,.subscription-record strong{color:#35483b;font-size:12px;overflow-wrap:anywhere}
+.subscription-notice{display:flex;align-items:flex-start;gap:11px;padding:14px 16px;border:1px solid #e4e9ef;border-radius:12px;background:#f8fafc;color:#53708b}.subscription-notice>svg{flex:0 0 auto;margin-top:1px}.subscription-notice div{display:flex;flex-direction:column;gap:5px;min-width:0}.subscription-notice strong{color:#38556f;font-size:11px}.subscription-notice span{color:#71869a;font-size:10px;line-height:1.6}
+.subscription-plans{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}
+.subscription-plan{position:relative;display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:21px;border:1px solid #e5eae5;border-radius:15px;background:#fff}
+.subscription-plan--selected{border-color:#559273;box-shadow:0 0 0 2px #55927318}.subscription-plan--popular{border-color:#b8d7c3}
+.subscription-popular{position:absolute;top:13px;right:13px;padding:5px 7px;border-radius:6px;background:#eaf4ed;color:#3c7654;font-size:8px;font-weight:800;letter-spacing:.6px}
+.subscription-plan-icon{display:grid;place-items:center;width:36px;height:36px;margin-bottom:14px;border-radius:10px;color:#367b58;background:#e8f3e9}.subscription-plan h3{margin:0 0 6px;color:#26392e;font-size:17px}
+.subscription-plan>p{min-height:32px;margin:0;color:#849087;font-size:11px;line-height:1.5}.subscription-price{margin:19px 0 16px;color:#2f6248;font-size:15px;font-weight:800;line-height:1.4;overflow-wrap:anywhere}.subscription-price small{color:#89958c;font-size:10px;font-weight:500}.subscription-savings{display:inline-flex;align-self:flex-start;margin:-7px 0 12px;padding:5px 8px;border-radius:999px;background:#eaf4ed;color:#2f6248;font-size:10px;font-weight:700;line-height:1.3;max-width:100%;overflow-wrap:anywhere}
+.subscription-plan ul{display:flex;flex-direction:column;gap:11px;width:100%;padding:15px 0 20px;margin:0 0 17px;border-top:1px solid #edf0ed;list-style:none}.subscription-plan li{display:flex;align-items:flex-start;gap:8px;color:#66766b;font-size:10px;line-height:1.4}.subscription-plan li svg{flex:0 0 auto;color:#559273}.subscription-select{width:100%;margin-top:auto}
+.subscription-record{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;padding:20px}.subscription-record>div{display:flex;flex-direction:column;gap:7px;min-width:0}
+@media(max-width:1000px){.subscription-plans{grid-template-columns:1fr}.subscription-plan>p{min-height:0}.subscription-record{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){.subscription-hero{grid-template-columns:1fr;padding:19px}.subscription-record{grid-template-columns:1fr;padding:16px}.subscription-popular{position:static;margin-bottom:10px}}
