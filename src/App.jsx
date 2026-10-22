@@ -191,7 +191,7 @@ function App() {
           </div>
         </div>
 
-        {!isFirebaseConfigured && <div className="demo-banner"><div className="demo-banner-icon"><ShieldCheck size={17}/></div><div><strong>Preview workspace</strong><span>Sample data is being shown. Connect your Firebase project to enable secure accounts and live library data.</span></div><button onClick={() => notify('Add your Firebase values to .env.local, then configure Authentication and Firestore rules.')} >Setup guide <ArrowRight size={14}/></button></div>}
+        <div className="demo-banner"><div className="demo-banner-icon"><ShieldCheck size={17}/></div><div><strong>Workspace preview</strong><span>{isFirebaseConfigured ? 'Firebase is configured, but this dashboard still uses sample data until live data services are connected.' : 'Sample data is shown. Configure Firebase Authentication and Firestore before using real library records.'}</span></div><button onClick={() => notify('Next: implement Firebase sign-in, library onboarding and Firestore-backed inventory services.')} >Setup guide <ArrowRight size={14}/></button></div>
 
         {activePage === 'Overview' && <Overview books={books} setActivePage={setActivePage} notify={notify} range={range} setRange={setRange}/>}
         {activePage === 'Inventory' && <Inventory books={filteredBooks} query={query} setQuery={setQuery} onAdd={() => setShowAddBook(true)} onExport={exportBooks} notify={notify}/>}
