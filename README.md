@@ -17,11 +17,13 @@ The current preview URL may still serve the previous deployment until the new br
 - Trusted Cloud Function creates the library, first owner membership, audit event and server-managed user-to-library index.
 - Existing users can choose from their registered library workspaces or register another.
 - Book inventory reads live documents from `libraries/{libraryId}/books` in Cloud Firestore.
-- Adding a book writes to Firestore; live listeners keep inventory in sync across sessions.
+- Adding a book uses a trusted Cloud Function to create a title, physical-copy records and an audit event.
+- Member registration, member search and CSV export use Firestore reader records.
+- Checkout and returns call transaction-based Cloud Functions that atomically update loan and copy records.
 - Firestore rules prevent browser users from creating libraries or editing memberships and protect the server-managed `libraryIds` index.
 - Responsive authentication and onboarding screens.
 
-**Not fully live yet:** circulation, members, reports, notifications, dashboard statistics, reservations, billing and most settings still contain preview/demo content. Do not use these sections as operational records until they are connected and tested.
+**Not fully live yet:** reports, notifications, dashboard statistics, reservations, billing and most settings still contain preview/demo content. Member active-loan counts and some dashboard analytics are not yet data-backed. Test the authentication, rules and Cloud Functions end-to-end before using real library records.
 
 ## Stack
 
@@ -69,9 +71,9 @@ The current preview URL may still serve the previous deployment until the new br
 
 1. A library administrator creates an account with an email and password.
 2. They register a library and choose its type.
-3. The trusted `createLibrary` Cloud Function creates the library and owner membership atomically. Browser clients cannot grant themselves an owner role.
-4. The new library ID is indexed on the user's profile by the trusted function.
-5. The administrator can select a workspace and add books. Inventory records are stored under that library's Firestore path.
+3. The trusted `createLibrary` Cloud Function creates the library, owner membership, audit event and user profile index atomically. Browser clients cannot grant themselves an owner role.
+4. The administrator can add catalogue titles. The trusted `createBook` function creates both the title and physical copy records.
+5. Staff can register readers, then check out and return physical copies through transactional Cloud Functions.
 
 ## Firestore data model
 
@@ -84,7 +86,7 @@ The current preview URL may still serve the previous deployment until the new br
 - `libraries/{libraryId}/loans/{loanId}` — transactional circulation records.
 - `libraries/{libraryId}/auditLogs/{logId}` — backend-generated audit events.
 
-The existing Cloud Functions include library provisioning and transactional checkout/return operations. The current UI does not yet connect the circulation screens to those functions.
+The UI connects library provisioning, book/copy creation, reader registration, checkout and returns to Firestore-backed services. More complete workflows such as renewals, reservations and member activity history remain on the roadmap.
 
 ## Security notes
 
@@ -104,9 +106,8 @@ node --check functions/index.js
 
 ## Roadmap
 
-1. Complete Firestore-backed readers and member administration.
-2. Connect circulation UI to transaction-based checkout and return functions.
-3. Add copy management, reservations, renewals and overdue workflows.
-4. Implement notifications, data-backed reports and audit views.
-5. Add emulator security tests, error monitoring, App Check and production deployment checks.
-6. Add subscriptions only after the core library workflows and security model are validated.
+1. Add emulator-based security tests for tenant isolation, user onboarding and all role combinations.
+2. Add copy editing, renewals, reservations and member activity history.
+3. Implement notifications, data-backed reports and audit views.
+4. Add App Check, error monitoring, backups and production deployment checks.
+5. Add subscriptions only after the core library workflows and security model are validated.
