@@ -29,7 +29,24 @@ export default async function handler(req, res) {
   const event = req.body && typeof req.body === 'object' ? req.body : {};
   if (!safeEqual(event.challenge, expectedChallenge)) return json(res, 401, { error: 'Invalid webhook challenge.' });
   if (event.topic !== 'collection_event') return json(res, 200, { received: true, ignored: true });
-  if (event.state !== 'COMPLETE') return json(res, 200, { received: true, ignored: true });
+  const database = db();
+  if (event.state !== 'COMPLETE') {
+    const apiRef = typeof event.api_ref === 'string' ? event.api_ref : '';
+    const knownStates = new Set(['PENDING', 'PROCESSING', 'RETRY', 'PARTIAL', 'FAILED', 'CANCELED']);
+    if (apiRef && knownStates.has(event.state)) {
+      const pendingRef = database.doc(`subscriptionPayments/${apiRef}`);
+      await database.runTransaction(async (transaction) => {
+        const paymentSnapshot = await transaction.get(pendingRef);
+        if (paymentSnapshot.exists && paymentSnapshot.get('status') === 'pending') {
+          transaction.set(pendingRef, {
+            providerState: String(event.state).toLowerCase(),
+            updatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
+        }
+      });
+    }
+    return json(res, 200, { received: true, updated: true });
+  }
 
   const invoiceId = typeof event.invoice_id === 'string' ? event.invoice_id : '';
   const apiRef = typeof event.api_ref === 'string' ? event.api_ref : '';
@@ -48,7 +65,6 @@ export default async function handler(req, res) {
       return json(res, 400, { error: 'IntaSend could not verify this completed payment.' });
     }
 
-    const database = db();
     const paymentRef = database.doc(`subscriptionPayments/${apiRef}`);
     const paymentSnapshot = await paymentRef.get();
     if (!paymentSnapshot.exists) return json(res, 404, { error: 'Payment reference was not found.' });
