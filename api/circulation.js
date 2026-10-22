@@ -1,4 +1,4 @@
-import { authenticate, db, FieldValue, requireLibraryRole, respondError, text, Timestamp } from './_lib/admin.js';
+import { authenticate, db, FieldValue, requireSubscriptionAccess, requireLibraryRole, respondError, text, Timestamp } from './_lib/admin.js';
 import { allowMethods, bodyObject } from './_lib/http.js';
 
 export default async function handler(req, res) {
@@ -10,6 +10,7 @@ export default async function handler(req, res) {
     const libraryId = text(input.libraryId, 'Library ID', 140);
     const database = db();
     await requireLibraryRole(database, libraryId, identity.uid, ['owner', 'admin', 'librarian']);
+    await requireSubscriptionAccess(database, libraryId);
 
     if (action === 'checkoutBook') {
       const copyId = text(input.copyId, 'Copy ID', 140);
