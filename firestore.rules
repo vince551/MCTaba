@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isActiveMember(libraryId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/libraries/$(libraryId)/memberships/$(request.auth.uid))
+        && get(/databases/$(database)/documents/libraries/$(libraryId)/memberships/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function hasRole(libraryId, roles) {
+      return isActiveMember(libraryId)
+        && get(/databases/$(database)/documents/libraries/$(libraryId)/memberships/$(request.auth.uid)).data.role in roles;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && request.auth.uid == userId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['platformRole', 'role', 'isPlatformAdmin']);
+      allow delete: if false;
+    }
+
+    match /libraries/{libraryId} {
+      allow read: if isActiveMember(libraryId);
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if hasRole(libraryId, ['owner', 'admin']);
+      allow delete: if false;
+
+      match /memberships/{userId} {
+        allow read: if isActiveMember(libraryId)
+          && (request.auth.uid == userId || hasRole(libraryId, ['owner', 'admin']));
+        // Membership creation, role changes and invitations must be performed by trusted backend code.
+        allow write: if false;
+      }
+
+      match /books/{bookId} {
+        allow read: if isActiveMember(libraryId);
+        allow create, update: if hasRole(libraryId, ['owner', 'admin', 'librarian']);
+        allow delete: if hasRole(libraryId, ['owner', 'admin']);
+      }
+
+      match /copies/{copyId} {
+        allow read: if isActiveMember(libraryId);
+        // Copy status changes should be implemented through validated circulation operations.
+        allow write: if false;
+      }
+
+      match /readers/{readerId} {
+        allow read: if hasRole(libraryId, ['owner', 'admin', 'librarian']);
+        allow create, update: if hasRole(libraryId, ['owner', 'admin', 'librarian']);
+        allow delete: if hasRole(libraryId, ['owner', 'admin']);
+      }
+
+      match /loans/{loanId} {
+        allow read: if hasRole(libraryId, ['owner', 'admin', 'librarian']);
+        // Loan transitions must use trusted, transaction-based backend operations.
+        allow write: if false;
+      }
+
+      match /reservations/{reservationId} {
+        allow read: if isActiveMember(libraryId);
+        allow write: if false;
+      }
+
+      match /notifications/{notificationId} {
+        allow read: if isActiveMember(libraryId)
+          && resource.data.recipientId == request.auth.uid;
+        allow write: if false;
+      }
+
+      match /auditLogs/{logId} {
+        allow read: if hasRole(libraryId, ['owner', 'admin']);
+        allow write: if false;
+      }
+    }
+
+    match /subscriptions/{subscriptionId} {
+      // Billing state is managed by trusted backend functions and payment webhooks.
+      allow read: if signedIn()
+        && resource.data.ownerId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Any collection not explicitly listed above is denied by default.
+  }
+}
