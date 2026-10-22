@@ -86,6 +86,7 @@ exports.createLibrary = onCall(async (request) => {
         ? request.auth.token.email
         : '',
       updatedAt: FieldValue.serverTimestamp(),
+      libraryIds: FieldValue.arrayUnion(libraryRef.id),
       ...(userSnapshot.exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
     }, { merge: true });
     transaction.create(auditRef, {
