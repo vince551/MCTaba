@@ -7,8 +7,8 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
-import { auth, db, functions, isFirebaseConfigured } from './firebase.js';
+import { auth, db, isFirebaseConfigured } from './firebase.js';
+import { apiRequest } from './api.js';
 import './auth.css';
 
 const libraryTypes = [
@@ -104,19 +104,14 @@ export default function AuthPortal({ user, onLibraryReady }) {
     event.preventDefault();
     setError('');
     setMessage('');
-    if (!functions) {
-      setError('Firebase Cloud Functions is not configured. Check your Firebase project setup.');
-      return;
-    }
     setLoading(true);
     try {
-      const provisionLibrary = httpsCallable(functions, 'createLibrary');
-      const result = await provisionLibrary({
+      const result = await apiRequest('/api/library', { action: 'createLibrary',
         name: libraryName.trim(),
         type: libraryType,
         location: location.trim(),
       });
-      const libraryId = result.data.libraryId;
+      const libraryId = result.libraryId;
       const snap = await getDoc(doc(db, 'libraries', libraryId));
       if (!snap.exists()) throw new Error('The library was created but could not be loaded. Refresh and try again.');
       onLibraryReady({ id: snap.id, ...snap.data() });
