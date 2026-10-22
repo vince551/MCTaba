@@ -35,12 +35,13 @@ async function ownerLibrary(database, libraryId, uid) {
 
 async function startTrial(database, identity, libraryId, library) {
   const subscriptionRef = database.doc(`subscriptions/${libraryId}`);
+  const userRef = database.doc(`users/${identity.uid}`);
   const now = Timestamp.now();
   const trialEnd = Timestamp.fromMillis(now.toMillis() + 14 * 24 * 60 * 60 * 1000);
   const result = await database.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(subscriptionRef);
+    const [snapshot, userSnapshot] = await Promise.all([transaction.get(subscriptionRef), transaction.get(userRef)]);
     const previous = snapshot.exists ? snapshot.data() : {};
-    if (previous.trialUsedAt) {
+    if (previous.trialUsedAt || userSnapshot.get('trialUsedAt')) {
       const error = new Error('This library has already used its 14-day free trial.');
       error.status = 409;
       throw error;
@@ -50,6 +51,7 @@ async function startTrial(database, identity, libraryId, library) {
       error.status = 409;
       throw error;
     }
+    transaction.set(userRef, { trialUsedAt: now, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     transaction.set(subscriptionRef, {
       libraryId,
       ownerId: identity.uid,
