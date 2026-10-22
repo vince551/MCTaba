@@ -21,11 +21,11 @@ Configure these in Vercel → Project → Settings → Environment Variables. Us
 - `INTASEND_SECRET_KEY`: IntaSend secret key, used only to verify invoice status on the server
 - `INTASEND_WEBHOOK_CHALLENGE`: a long, random secret challenge configured to the same value in the IntaSend webhook dashboard
 - `APP_BASE_URL`: canonical MCTaba site URL, e.g. `https://mctaba-five.vercel.app`
-- `MCTABA_PRICE_WEEKLY_KES`: weekly price in KES, not set by the code
-- `MCTABA_PRICE_MONTHLY_KES`: monthly price in KES, not set by the code
-- `MCTABA_PRICE_YEARLY_KES`: yearly price in KES, not set by the code
+- `MCTABA_PRICE_WEEKLY_KES`: optional weekly price override; defaults to `1200`
+- `MCTABA_PRICE_MONTHLY_KES`: optional monthly price override; defaults to `3500`
+- `MCTABA_PRICE_YEARLY_KES`: optional yearly price override; defaults to `35000`
 
-**Do not invent prices.** Leave the three price variables unset until MCTaba's owner confirms the amounts. Without a valid price, checkout returns a configuration message and no payment is created. Keep every value above in Vercel environment variables only. Never prefix secrets with `VITE_`, put them in frontend code, commit them to GitHub, or paste them into chat. Firebase Admin bypasses Firestore Security Rules, so restrict access to the Vercel project and rotate any exposed key.
+**Published default prices (KES):** Weekly KSh 1,200; Monthly KSh 3,500; Yearly KSh 35,000. The API defaults to these values so checkout and the pricing UI agree without extra configuration. Optional environment-variable overrides are supported; if used, update the visible plan prices at the same time so customers are never shown a different amount from the checkout amount. Keep secrets in Vercel environment variables only. Never prefix secrets with `VITE_`, put them in frontend code, commit them to GitHub, or paste them into chat. Firebase Admin bypasses Firestore Security Rules, so restrict access to the Vercel project and rotate any exposed key.
 
 ## Configure the IntaSend webhook
 
@@ -49,7 +49,7 @@ Firebase Cloud Functions are deliberately not used because this project must rem
 
 ## Current limitations / decisions
 
-- Weekly, monthly and yearly prices remain unconfigured.
+- Default prices are Weekly KSh 1,200, Monthly KSh 3,500 and Yearly KSh 35,000. Optional environment overrides must match the frontend display.
 - IntaSend credentials and the webhook challenge must be entered securely in Vercel and IntaSend's dashboard by the project owner.
 - Trial is limited to one per owner account and does not auto-renew.
 - Paid subscriptions activate only after server-side verified payment. The code does not create recurring card mandates; renewals currently require the owner to initiate a new checkout.
