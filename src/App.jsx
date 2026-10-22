@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { addDoc, collection, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import AuthPortal from './AuthPortal.jsx';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, Bell, BookMarked, BookOpen,
@@ -10,7 +11,7 @@ import {
   CircleAlert, CheckCircle2, Bookmark, Mail, CreditCard, ScanLine
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { auth, db, isFirebaseConfigured } from './firebase.js';
+import { auth, db, functions, isFirebaseConfigured } from './firebase.js';
 
 const initialBooks = [
   { id: 'BK-001', title: 'Things Fall Apart', author: 'Chinua Achebe', category: 'Literature', isbn: '9780385474542', copies: 12, available: 8, status: 'Available', color: 'sage' },
@@ -104,18 +105,15 @@ function Dashboard({ user, library, onSwitchLibrary }) {
     if (!newBook.title.trim() || !newBook.author.trim()) return;
     const copies = Math.max(1, Number(newBook.copies) || 1);
     try {
-      await addDoc(collection(db, 'libraries', library.id, 'books'), {
-      createdBy: user.uid,
-      createdAt: serverTimestamp(),
-      title: newBook.title.trim(),
-      author: newBook.author.trim(),
-      category: newBook.category,
-      isbn: newBook.isbn.trim() || 'Not provided',
-      copies,
-      available: copies,
-      status: 'Available',
-      color: 'sage',
-    });
+      const createBook = httpsCallable(functions, 'createBook');
+      await createBook({
+        libraryId: library.id,
+        title: newBook.title.trim(),
+        author: newBook.author.trim(),
+        category: newBook.category,
+        isbn: newBook.isbn.trim(),
+        copies,
+      });
     } catch (error) {
       setToast(error.code === 'permission-denied' ? 'You do not have permission to add books to this library.' : 'Could not save the book to Firestore. Please try again.');
       return;
@@ -123,7 +121,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
     setNewBook({ title: '', author: '', category: 'Literature', isbn: '', copies: '1' });
     setShowAddBook(false);
     setActivePage('Inventory');
-    notify('Book saved to your Firestore inventory.');
+    notify('Book and physical copies saved to Firestore.');
   };
 
   const pageSubtitle = {
@@ -229,7 +227,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
         <div className="modal-heading"><div><span className="eyebrow">INVENTORY</span><h2>Add a new book</h2><p>Add a title to the {library.name} catalogue.</p></div><button type="button" className="icon-button" onClick={() => setShowAddBook(false)} aria-label="Close dialog"><X size={19}/></button></div>
         <label>Book title <input required autoFocus value={newBook.title} onChange={e => setNewBook({ ...newBook, title: e.target.value })} placeholder="e.g. The River and the Source"/></label>
         <label>Author <input required value={newBook.author} onChange={e => setNewBook({ ...newBook, author: e.target.value })} placeholder="Author's full name"/></label>
-        <div className="form-row"><label>Category<select value={newBook.category} onChange={e => setNewBook({ ...newBook, category: e.target.value })}><option>Literature</option><option>Science</option><option>History</option><option>Technology</option><option>Finance</option><option>Personal development</option><option>Reference</option></select></label><label>Number of copies<input type="number" min="1" max="10000" value={newBook.copies} onChange={e => setNewBook({ ...newBook, copies: e.target.value })}/></label></div>
+        <div className="form-row"><label>Category<select value={newBook.category} onChange={e => setNewBook({ ...newBook, category: e.target.value })}><option>Literature</option><option>Science</option><option>History</option><option>Technology</option><option>Finance</option><option>Personal development</option><option>Reference</option></select></label><label>Number of copies<input type="number" min="1" max="300" value={newBook.copies} onChange={e => setNewBook({ ...newBook, copies: e.target.value })}/></label></div>
         <label>ISBN <span className="optional-label">OPTIONAL</span><input value={newBook.isbn} onChange={e => setNewBook({ ...newBook, isbn: e.target.value })} placeholder="ISBN-13"/></label>
         <div className="modal-actions"><button type="button" className="button button--secondary" onClick={() => setShowAddBook(false)}>Cancel</button><button className="button button--primary" type="submit"><Plus size={16}/> Add to inventory</button></div>
       </form>
@@ -278,7 +276,7 @@ function Overview({ books, setActivePage, notify, range, setRange }) {
 }
 
 function Inventory({ books, query, setQuery, onAdd, onExport, notify }) {
-  return <><div className="inventory-toolbar"><div className="inventory-search"><Search size={17}/><input placeholder="Search title, author, ISBN..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>/</kbd></div><button className="button button--secondary" onClick={() => notify('Category filters will be connected to the live catalogue.')}><Filter size={15}/> Filters</button><button className="button button--secondary" onClick={onExport}><Download size={15}/> Export</button><button className="button button--primary" onClick={onAdd}><Plus size={16}/> Add a book</button></div><section className="panel table-panel"><div className="panel-heading"><div><h3>All books <span className="subtle-count">{books.length}</span></h3><p>Manage titles in your collection</p></div><button className="icon-button" aria-label="More inventory actions" onClick={() => notify('More inventory actions are coming soon.')}><Ellipsis size={20}/></button></div><div className="table-scroll"><table><thead><tr><th>BOOK</th><th>ISBN</th><th>CATEGORY</th><th>COPIES</th><th>AVAILABILITY</th><th/></tr></thead><tbody>{books.map(book => <tr key={book.id}><td><div className="table-book"><div className={`table-book-cover book-cover--${book.color}`}><BookOpen size={17}/></div><div><strong>{book.title}</strong><span>{book.author}</span></div></div></td><td className="isbn-cell">{book.isbn}</td><td><span className="category-pill">{book.category}</span></td><td><strong>{book.copies}</strong></td><td><div className="availability-cell"><span className="availability-track"><i style={{ width: `${book.copies ? (book.available / book.copies) * 100 : 0}%` }}/></span><span>{book.available}/{book.copies}</span></div></td><td><button className="icon-button" aria-label={`Book actions for ${book.title}`} onClick={() => notify(`Book actions for “${book.title}” will be enabled with live data.`)}><Ellipsis size={18}/></button></td></tr>)}</tbody></table>{books.length === 0 && <div className="empty-state"><BookOpen size={28}/><strong>No books found</strong><span>Try a different search or add a new book.</span></div>}</div><div className="table-footer"><span>Showing {books.length} {books.length === 1 ? 'title' : 'titles'}</span><span>Demo data · not saved to a database</span></div></section></>;
+  return <><div className="inventory-toolbar"><div className="inventory-search"><Search size={17}/><input placeholder="Search title, author, ISBN..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>/</kbd></div><button className="button button--secondary" onClick={() => notify('Category filters will be connected to the live catalogue.')}><Filter size={15}/> Filters</button><button className="button button--secondary" onClick={onExport}><Download size={15}/> Export</button><button className="button button--primary" onClick={onAdd}><Plus size={16}/> Add a book</button></div><section className="panel table-panel"><div className="panel-heading"><div><h3>All books <span className="subtle-count">{books.length}</span></h3><p>Manage titles in your collection</p></div><button className="icon-button" aria-label="More inventory actions" onClick={() => notify('More inventory actions are coming soon.')}><Ellipsis size={20}/></button></div><div className="table-scroll"><table><thead><tr><th>BOOK</th><th>ISBN</th><th>CATEGORY</th><th>COPIES</th><th>AVAILABILITY</th><th/></tr></thead><tbody>{books.map(book => <tr key={book.id}><td><div className="table-book"><div className={`table-book-cover book-cover--${book.color}`}><BookOpen size={17}/></div><div><strong>{book.title}</strong><span>{book.author}</span></div></div></td><td className="isbn-cell">{book.isbn}</td><td><span className="category-pill">{book.category}</span></td><td><strong>{book.copies}</strong></td><td><div className="availability-cell"><span className="availability-track"><i style={{ width: `${book.copies ? (book.available / book.copies) * 100 : 0}%` }}/></span><span>{book.available}/{book.copies}</span></div></td><td><button className="icon-button" aria-label={`Book actions for ${book.title}`} onClick={() => notify(`Book actions for “${book.title}” will be enabled with live data.`)}><Ellipsis size={18}/></button></td></tr>)}</tbody></table>{books.length === 0 && <div className="empty-state"><BookOpen size={28}/><strong>No books found</strong><span>Try a different search or add a new book.</span></div>}</div><div className="table-footer"><span>Showing {books.length} {books.length === 1 ? 'title' : 'titles'}</span><span>Live Firestore inventory</span></div></section></>;
 }
 
 function Circulation({ notify }) {
