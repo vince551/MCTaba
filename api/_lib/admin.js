@@ -65,6 +65,22 @@ export function text(value, field, max = 120) {
   return result;
 }
 
+export async function requireSubscriptionAccess(database, libraryId) {
+  const snapshot = await database.doc(`subscriptions/${libraryId}`).get();
+  if (!snapshot.exists) {
+    const error = new Error('Start the 14-day free trial or activate a paid plan to use library tools.');
+    error.status = 402;
+    throw error;
+  }
+  const subscription = snapshot.data();
+  const end = subscription.currentPeriodEnd?.toMillis?.();
+  if (!['active', 'trialing'].includes(subscription.status) || !end || end <= Date.now()) {
+    const error = new Error('This library subscription has expired. The owner can open Subscription & billing to renew or review billing.');
+    error.status = 402;
+    throw error;
+  }
+}
+
 export async function requireLibraryRole(database, libraryId, uid, roles) {
   const membership = await database.doc(`libraries/${libraryId}/memberships/${uid}`).get();
   if (!membership.exists || membership.get('status') !== 'active') {
