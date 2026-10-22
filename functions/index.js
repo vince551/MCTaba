@@ -192,9 +192,28 @@ exports.checkoutBook = onCall(async (request) => {
       throw new HttpsError('failed-precondition', 'This copy is not available for checkout.');
     }
 
+    const bookId = copySnapshot.get('bookId');
+    if (typeof bookId !== 'string' || !bookId) {
+      throw new HttpsError('failed-precondition', 'This copy has no valid book reference.');
+    }
+    const bookRef = db.doc(`libraries/${libraryId}/books/${bookId}`);
+    const bookSnapshot = await transaction.get(bookRef);
+    if (!bookSnapshot.exists) {
+      throw new HttpsError('failed-precondition', 'The catalogue record for this copy no longer exists.');
+    }
+    const availableCount = Number(bookSnapshot.get('available'));
+    if (!Number.isInteger(availableCount) || availableCount < 1) {
+      throw new HttpsError('failed-precondition', 'The catalogue shows no available copies. Refresh the inventory and try again.');
+    }
+
     transaction.update(copyRef, {
       status: 'borrowed',
       currentReaderId: readerId,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.update(bookRef, {
+      available: availableCount - 1,
+      status: availableCount - 1 === 0 ? 'All borrowed' : availableCount - 1 <= 2 ? 'Low stock' : 'Available',
       updatedAt: FieldValue.serverTimestamp(),
     });
     transaction.create(loanRef, {
@@ -243,6 +262,20 @@ exports.returnBook = onCall(async (request) => {
     const copyRef = db.doc(`libraries/${libraryId}/copies/${copyId}`);
     const copySnapshot = await transaction.get(copyRef);
     if (!copySnapshot.exists) throw new HttpsError('failed-precondition', 'The linked book copy no longer exists.');
+    if (copySnapshot.get('status') !== 'borrowed' || copySnapshot.get('currentReaderId') !== loanSnapshot.get('readerId')) {
+      throw new HttpsError('failed-precondition', 'The copy status does not match this loan. Review the circulation records before returning it.');
+    }
+
+    const bookId = loanSnapshot.get('bookId') || copySnapshot.get('bookId');
+    if (typeof bookId !== 'string' || !bookId) {
+      throw new HttpsError('failed-precondition', 'This loan has no valid book reference.');
+    }
+    const bookRef = db.doc(`libraries/${libraryId}/books/${bookId}`);
+    const bookSnapshot = await transaction.get(bookRef);
+    if (!bookSnapshot.exists) throw new HttpsError('failed-precondition', 'The catalogue record for this book no longer exists.');
+    const totalCopies = Number(bookSnapshot.get('copies')) || 0;
+    const availableCount = Number(bookSnapshot.get('available')) || 0;
+    const nextAvailable = Math.min(totalCopies, availableCount + 1);
 
     transaction.update(loanRef, {
       status: 'returned',
@@ -253,6 +286,11 @@ exports.returnBook = onCall(async (request) => {
     transaction.update(copyRef, {
       status: 'available',
       currentReaderId: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.update(bookRef, {
+      available: nextAvailable,
+      status: nextAvailable === 0 ? 'All borrowed' : nextAvailable <= 2 ? 'Low stock' : 'Available',
       updatedAt: FieldValue.serverTimestamp(),
     });
     transaction.create(auditRef, {
