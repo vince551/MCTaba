@@ -10,15 +10,23 @@ export function adminApp() {
     return app;
   }
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!raw) throw new Error('Server billing configuration is missing FIREBASE_SERVICE_ACCOUNT_JSON.');
+  if (!raw) {
+    const error = new Error('Library setup is incomplete on the server. The site owner must add FIREBASE_SERVICE_ACCOUNT_JSON in Vercel Project Settings → Environment Variables, then redeploy.');
+    error.status = 503;
+    throw error;
+  }
   let serviceAccount;
   try {
     serviceAccount = JSON.parse(raw);
   } catch {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON must contain valid service-account JSON.');
+    const error = new Error('Server Firebase credentials are invalid. The site owner must replace FIREBASE_SERVICE_ACCOUNT_JSON with the service-account JSON for project mctaba-85685, then redeploy.');
+    error.status = 503;
+    throw error;
   }
   if (!serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
-    throw new Error('Firebase service-account JSON is missing required fields.');
+    const error = new Error('Server Firebase credentials are incomplete. Check that the service-account JSON contains project_id, client_email and private_key.');
+    error.status = 503;
+    throw error;
   }
   serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
   app = initializeApp({
