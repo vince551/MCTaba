@@ -116,9 +116,9 @@ export default function AuthPortal({ user, onLibraryReady }) {
       if (!snap.exists()) throw new Error('The library was created but could not be loaded. Refresh and try again.');
       onLibraryReady({ id: snap.id, ...snap.data() });
     } catch (err) {
-      setError(err.code === 'functions/unauthenticated'
+      setError(err.status === 401
         ? 'Your session expired. Sign in again.'
-        : err.message || 'Could not create your library. Check that Cloud Functions are deployed.');
+        : err.message || 'Could not create your library. Check the Vercel server configuration.');
     } finally {
       setLoading(false);
     }
