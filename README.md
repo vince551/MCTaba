@@ -4,6 +4,12 @@
 
 Mctaba is a multi-tenant library management SaaS for school, university, community, church and private libraries. This repository contains the React/Vite application foundation and the first responsive workspace preview.
 
+## Live preview
+
+**Website:** https://mctaba-five.vercel.app
+
+The preview is deployed from the `feature/mctaba-foundation` branch on Vercel. Several dashboard sections still use sample data; this preview is not yet a production-ready library management service.
+
 ## Current status
 
 - Responsive React workspace with overview, inventory, circulation, members, reports, notifications and settings views.
