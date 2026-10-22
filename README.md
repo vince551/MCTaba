@@ -14,12 +14,12 @@ The current preview URL may still serve the previous deployment until the new br
 
 - Firebase Authentication screens for account creation, sign-in and password reset.
 - Library onboarding: register a library with a name, type and optional location.
-- Trusted Cloud Function creates the library, first owner membership, audit event and server-managed user-to-library index.
+- A trusted Vercel API route creates the library, first owner membership, audit event, initial trial record and server-managed user-to-library index.
 - Existing users can choose from their registered library workspaces or register another.
 - Book inventory reads live documents from `libraries/{libraryId}/books` in Cloud Firestore.
-- Adding a book uses a trusted Cloud Function to create a title, physical-copy records and an audit event.
+- Adding a book uses a trusted Vercel API route to create a title, physical-copy records and an audit event.
 - Member registration, member search and CSV export use Firestore reader records.
-- Checkout and returns call transaction-based Cloud Functions that atomically update loan and copy records.
+- Checkout and returns use Vercel API routes and Firebase Admin transactions to update loan and copy records atomically.
 - Firestore rules prevent browser users from creating libraries or editing memberships and protect the server-managed `libraryIds` index.
 - Responsive authentication and onboarding screens.
 
@@ -30,7 +30,7 @@ The current preview URL may still serve the previous deployment until the new br
 - React 19 + Vite
 - Firebase Authentication
 - Cloud Firestore
-- Firebase Cloud Functions (Node.js 20)
+- Vercel Node.js API routes + Firebase Admin SDK
 - Firebase Storage scaffolding
 - Recharts and Lucide icons
 
@@ -56,24 +56,25 @@ The current preview URL may still serve the previous deployment until the new br
    VITE_FIREBASE_MESSAGING_SENDER_ID=your-messaging-sender-id
    VITE_FIREBASE_APP_ID=your-web-app-id
    ```
-7. Deploy the Firestore rules and the library provisioning / circulation functions:
+7. Deploy the Firestore rules using the Firebase CLI, or paste `firestore.rules` into Firebase Console → Firestore Database → Rules and publish them:
    ```bash
-   firebase deploy --only firestore:rules,functions
+   firebase deploy --only firestore:rules
    ```
-   Cloud Functions deployment may require enabling billing on the Firebase/Google Cloud project. Review usage and budgets before enabling billing.
-8. Run locally:
+   The app's trusted server operations run as Vercel API routes, so you do not need Firebase Cloud Functions or a Firebase billing-plan upgrade for those routes.
+8. In Vercel → Project Settings → Environment Variables, configure `FIREBASE_SERVICE_ACCOUNT_JSON` as a **Sensitive** variable for Production, Preview and Development. Its value must be the complete JSON key for a service account in project `mctaba-85685` with permission to access Authentication and Firestore. Never commit or share this key. Redeploy after adding it.
+9. Run locally:
    ```bash
    npm run dev
    ```
-9. For Vercel, add the same six `VITE_FIREBASE_*` values in **Project Settings → Environment Variables**, for Preview and Production as needed, then redeploy.
+10. For Vercel, set the six `VITE_FIREBASE_*` values from Firebase Console → Project settings → Your apps → Web app configuration for Preview and Production, then redeploy.
 
 ## 2. How library registration works
 
 1. A library administrator creates an account with an email and password.
 2. They register a library and choose its type.
-3. The trusted `createLibrary` Cloud Function creates the library, owner membership, audit event and user profile index atomically. Browser clients cannot grant themselves an owner role.
-4. The administrator can add catalogue titles. The trusted `createBook` function creates both the title and physical copy records.
-5. Staff can register readers, then check out and return physical copies through transactional Cloud Functions.
+3. The trusted `/api/library` Vercel route creates the library, owner membership, trial record, audit event and user profile index atomically. Browser clients cannot grant themselves an owner role.
+4. The administrator can add catalogue titles. The trusted `/api/library` route creates both the title and physical copy records.
+5. Staff can register readers, then check out and return physical copies through trusted API routes and transactions.
 
 ## Firestore data model
 
