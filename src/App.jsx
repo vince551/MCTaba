@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { addDoc, collection, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
 import AuthPortal from './AuthPortal.jsx';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, Bell, BookMarked, BookOpen,
@@ -11,7 +10,8 @@ import {
   CircleAlert, CheckCircle2, Bookmark, Mail, CreditCard, ScanLine
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { auth, db, functions, isFirebaseConfigured } from './firebase.js';
+import { auth, db, isFirebaseConfigured } from './firebase.js';
+import { apiRequest } from './api.js';
 
 const initialBooks = [
   { id: 'BK-001', title: 'Things Fall Apart', author: 'Chinua Achebe', category: 'Literature', isbn: '9780385474542', copies: 12, available: 8, status: 'Available', color: 'sage' },
@@ -106,8 +106,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
     if (!newBook.title.trim() || !newBook.author.trim()) return;
     const copies = Math.max(1, Number(newBook.copies) || 1);
     try {
-      const createBook = httpsCallable(functions, 'createBook');
-      await createBook({
+      await apiRequest('/api/library', { action: 'createBook',
         libraryId: library.id,
         title: newBook.title.trim(),
         author: newBook.author.trim(),
@@ -116,7 +115,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
         copies,
       });
     } catch (error) {
-      setToast(error.code === 'permission-denied' ? 'You do not have permission to add books to this library.' : 'Could not save the book to Firestore. Please try again.');
+      setToast(error.message || 'Could not save the book to Firestore. Please try again.');
       return;
     }
     setNewBook({ title: '', author: '', category: 'Literature', isbn: '', copies: '1' });
@@ -321,8 +320,7 @@ function Circulation({ notify, library, user }) {
     }
     setSaving(true);
     try {
-      const checkoutBook = httpsCallable(functions, 'checkoutBook');
-      await checkoutBook({ libraryId: library.id, copyId: selectedCopy, readerId: selectedReader, dueAt: new Date(dueAt).toISOString() });
+      await apiRequest('/api/circulation', { action: 'checkoutBook', libraryId: library.id, copyId: selectedCopy, readerId: selectedReader, dueAt: new Date(dueAt).toISOString() });
       setShowCheckout(false);
       setSelectedCopy('');
       setSelectedReader('');
@@ -337,8 +335,7 @@ function Circulation({ notify, library, user }) {
   const returnLoan = async (loanId) => {
     setSaving(true);
     try {
-      const returnBook = httpsCallable(functions, 'returnBook');
-      await returnBook({ libraryId: library.id, loanId });
+      await apiRequest('/api/circulation', { action: 'returnBook', libraryId: library.id, loanId });
       notify('Book returned and its physical copy released.');
     } catch (error) {
       notify(error.message || 'Could not process this return.');
@@ -481,7 +478,7 @@ function Subscriptions({ notify, library }) {
     return onSnapshot(doc(db, 'subscriptions', library.id), (snap) => {
       const data = snap.exists() ? snap.data() : null;
       setSubscription(data); setLoaded(true);
-      if (data?.billingCycle) setCycle(data.billingCycle);
+      if (data?.requestedBillingCycle || data?.billingCycle) setCycle(data.requestedBillingCycle || data.billingCycle);
     }, () => { setSubscription(null); setLoaded(true); });
   }, [library?.id]);
   const expiry = subscription?.currentPeriodEnd?.toDate ? subscription.currentPeriodEnd.toDate() : subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
@@ -492,6 +489,15 @@ function Subscriptions({ notify, library }) {
     { id: 'yearly', name: 'Yearly', duration: '365 days', description: 'One payment for a full year' },
   ];
   const status = subscription?.status || 'not-configured';
+  const chooseCycle = async (billingCycle) => {
+    setCycle(billingCycle);
+    try {
+      const result = await apiRequest('/api/subscriptions', { libraryId: library.id, billingCycle });
+      notify(result.message || 'Billing cycle saved. Payment is not activated yet.');
+    } catch (error) {
+      notify(error.message || 'Could not save the billing cycle.');
+    }
+  };
   return <div className="subscription-page">
     <section className="subscription-hero"><div className="subscription-hero-copy"><span className="eyebrow">MCTABA BILLING</span><h2>Your library. Your plan.</h2><p>Review weekly, monthly and yearly billing cycles for {library.name}. Subscription activation and payment verification must be handled securely by Mctaba.</p></div>
       <div className="subscription-status-card"><div className="subscription-status-top"><CreditCard size={18}/><span>Current subscription</span></div><strong>{subscription?.planName || 'No active plan'}</strong><Badge tone={status === 'active' ? 'success' : status === 'expired' || status === 'past_due' ? 'danger' : 'warning'}>{status.replaceAll('_', ' ')}</Badge><div className="subscription-status-meta"><span>Renewal / expiry</span><strong>{expiryLabel}</strong></div></div>
@@ -501,7 +507,7 @@ function Subscriptions({ notify, library }) {
     <div className="subscription-plans">{plans.map((plan) => <article key={plan.id} className={'subscription-plan' + (cycle === plan.id ? ' subscription-plan--selected' : '') + (plan.popular ? ' subscription-plan--popular' : '')}>
       {plan.popular && <span className="subscription-popular">MOST FLEXIBLE</span>}<div className="subscription-plan-icon"><CalendarDays size={19}/></div><h3>{plan.name}</h3><p>{plan.description}</p><div className="subscription-price">Price to be configured <small>/ {plan.duration}</small></div>
       <ul><li><Check size={15}/> Library workspace access</li><li><Check size={15}/> Inventory and circulation tools</li><li><Check size={15}/> Renewal and expiry tracking</li></ul>
-      <button className={'button ' + (cycle === plan.id ? 'button--primary' : 'button--secondary') + ' subscription-select'} onClick={() => { setCycle(plan.id); notify(plan.name + ' cycle selected for review. No payment was taken; secure payment setup is still required.'); }}>{cycle === plan.id ? 'Selected for review' : 'Choose ' + plan.name.toLowerCase()}</button>
+      <button className={'button ' + (cycle === plan.id ? 'button--primary' : 'button--secondary') + ' subscription-select'} onClick={() => chooseCycle(plan.id)}>{cycle === plan.id ? 'Selected for review' : 'Choose ' + plan.name.toLowerCase()}</button>
     </article>)}</div>
     <section className="panel subscription-history"><div className="panel-heading"><div><h3>Subscription & payment history</h3><p>Verified payments and renewals for {library.name}</p></div><Badge tone={loaded && subscription ? 'success' : 'neutral'}>{loaded && subscription ? 'Record found' : 'Awaiting setup'}</Badge></div>
       {!loaded ? <div className="empty-state"><Clock3 size={25}/><strong>Loading billing record</strong><span>Checking the secure subscription record.</span></div> : subscription ? <div className="subscription-record"><div><span>Plan</span><strong>{subscription.planName || subscription.planId || 'Library plan'}</strong></div><div><span>Billing cycle</span><strong>{subscription.billingCycle || 'Not recorded'}</strong></div><div><span>Status</span><strong>{status.replaceAll('_', ' ')}</strong></div><div><span>Renewal / expiry</span><strong>{expiryLabel}</strong></div></div> : <div className="empty-state"><CreditCard size={27}/><strong>No billing record yet</strong><span>The secure billing backend must create this record before subscription payments can be processed.</span></div>}
