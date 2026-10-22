@@ -11,9 +11,12 @@ const CYCLE_ENV = {
 const PERIOD_DAYS = { weekly: 7, monthly: 30, yearly: 365 };
 const INTASEND_API = 'https://api.intasend.com/api/v1/';
 
+const DEFAULT_PRICES_KES = { weekly: 1200, monthly: 3500, yearly: 35000 };
+
 function configuredPrice(cycle) {
   const raw = process.env[CYCLE_ENV[cycle]];
-  if (!raw || !/^\d+(\.\d{1,2})?$/.test(raw) || Number(raw) <= 0) return null;
+  if (raw === undefined || raw === '') return DEFAULT_PRICES_KES[cycle];
+  if (!/^\d+(\.\d{1,2})?$/.test(raw) || Number(raw) <= 0) return null;
   return Number(raw);
 }
 
