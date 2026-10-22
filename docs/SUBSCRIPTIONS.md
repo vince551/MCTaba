@@ -1,40 +1,56 @@
-# MCTaba subscription workflow and Vercel API setup
+# MCTaba subscription workflow and IntaSend setup
 
-## Current subscription workflow
+## User workflow
 
-1. A library owner signs in and creates a library. The Vercel API verifies the Firebase ID token, then atomically creates the library, owner membership and user profile link.
-2. The owner opens **Subscription & billing** and selects Weekly, Monthly or Yearly.
-3. The API verifies the caller owns that library and saves the requested billing cycle in `subscriptions/{libraryId}`. Selecting a cycle never marks the subscription paid or active.
-4. Once MCTaba's payment provider is chosen and configured, the API should create a provider checkout/payment request and save a pending payment record.
-5. A verified server-to-server provider callback/webhook must validate the provider signature and transaction reference, amount, currency, library and billing cycle. Only then may trusted server code mark the payment successful and the subscription active.
-6. The subscription stores the period start/end and renewal status. A scheduled job should mark expired subscriptions and apply the agreed access policy. Account access and billing history should remain available so owners can renew.
-7. A library owner can see their own subscription record. Client-side writes to subscription documents are denied by Firestore rules.
+1. A library owner signs in and creates a library. The trusted Vercel API provisions the library and owner membership. If the account has not used its one free trial, the library receives a **14-day trial** immediately.
+2. An owner with an existing library opens **Subscription & billing** and selects a billing cycle. The first selection starts the 14-day trial if the account has not already used it.
+3. Trial access ends after 14 days. The API and Firestore rules compare the subscription period end with the current time; expired workspaces lose access to inventory, readers and circulation data. Owners can still sign in, view the library workspace shell and access billing to renew.
+4. The owner chooses Weekly, Monthly or Yearly and selects **Continue to secure checkout**. Checkout is intentionally blocked until MCTaba's administrator sets real prices and adds IntaSend configuration.
+5. When configured, the API creates an IntaSend hosted checkout and stores a pending record at `subscriptionPayments/{apiRef}`. The subscription is not activated from the redirect or frontend.
+6. IntaSend sends a `collection_event` webhook to `/api/intasend-webhook`. The endpoint checks the configured challenge, then verifies the invoice with IntaSend's server-side payment-status API. It also matches the invoice reference, exact amount in cents and currency to the stored pending payment.
+7. Only a verified `COMPLETE` payment can mark that payment as paid and set the subscription to active. Duplicate webhook delivery is handled idempotently. Failed, partial, pending or mismatched payments never activate access.
+8. The subscription stores billing cycle, paid amount, currency, provider reference and current period start/end. Expiry enforcement is time-based in the trusted API and Firestore rules; no Firebase scheduled function is required.
 
-## Current implementation
+## IntaSend environment variables (Vercel server-side only)
 
-- Vercel API endpoints: `/api/library`, `/api/circulation`, and `/api/subscriptions`.
-- The endpoints verify Firebase ID tokens with Firebase Admin and enforce library membership/owner checks.
-- Book creation, checkout and return use trusted server-side transactions so copies, aggregate availability and loans remain consistent.
-- Firebase Cloud Functions are no longer called by the browser.
-- Payment collection is intentionally not enabled yet: no provider, pricing or merchant credentials have been selected. The API stores a billing-cycle selection as `awaiting_payment_setup`; it does not simulate a payment or grant a paid subscription.
-
-## Required Vercel environment variables
-
-Add these under Vercel Project Settings → Environment Variables for the environments you intend to use:
+Configure these in Vercel → Project → Settings → Environment Variables. Use test credentials for Preview until the complete workflow has been tested.
 
 - `FIREBASE_PROJECT_ID`: `mctaba-85685`
-- `FIREBASE_SERVICE_ACCOUNT_JSON`: the complete JSON contents of a Firebase service-account key for project `mctaba-85685`
+- `FIREBASE_SERVICE_ACCOUNT_JSON`: full Firebase service-account JSON for project `mctaba-85685`
+- `INTASEND_PUBLISHABLE_KEY`: IntaSend publishable key (test key for Preview; live key only when approved)
+- `INTASEND_SECRET_KEY`: IntaSend secret key, used only to verify invoice status on the server
+- `INTASEND_WEBHOOK_CHALLENGE`: a long, random secret challenge configured to the same value in the IntaSend webhook dashboard
+- `APP_BASE_URL`: canonical MCTaba site URL, e.g. `https://mctaba-five.vercel.app`
+- `MCTABA_PRICE_WEEKLY_KES`: weekly price in KES, not set by the code
+- `MCTABA_PRICE_MONTHLY_KES`: monthly price in KES, not set by the code
+- `MCTABA_PRICE_YEARLY_KES`: yearly price in KES, not set by the code
 
-Keep `FIREBASE_SERVICE_ACCOUNT_JSON` server-only. Do not prefix it with `VITE_`, commit it to GitHub, put it in frontend code, or paste it into chat. Create/download the key from Firebase Console → Project settings → Service accounts, then paste its complete JSON into Vercel's encrypted environment-variable value field. Restrict access to the Vercel project and rotate the key if it is ever exposed. Redeploy after adding the variables.
+**Do not invent prices.** Leave the three price variables unset until MCTaba's owner confirms the amounts. Without a valid price, checkout returns a configuration message and no payment is created. Keep every value above in Vercel environment variables only. Never prefix secrets with `VITE_`, put them in frontend code, commit them to GitHub, or paste them into chat. Firebase Admin bypasses Firestore Security Rules, so restrict access to the Vercel project and rotate any exposed key.
 
-The service account grants privileged access because Firebase Admin bypasses Firestore Security Rules. Use it only in server-side Vercel functions.
+## Configure the IntaSend webhook
 
-## Decisions still required before live payments
+After deploying the API route and setting `INTASEND_WEBHOOK_CHALLENGE`:
 
-- Payment provider (for Kenya, M-Pesa is one option; it has not been enabled).
-- Weekly, monthly and yearly prices in KES.
-- Whether a free trial exists and its duration.
-- Grace period and what library features become read-only or unavailable after expiry.
-- Payment provider credentials and the public callback/webhook URL.
+1. Open IntaSend Dashboard → Settings → Webhooks.
+2. Create a webhook endpoint: `https://mctaba-five.vercel.app/api/intasend-webhook` (use the actual deployed domain if it changes).
+3. Set the challenge to the exact same secret value as `INTASEND_WEBHOOK_CHALLENGE`.
+4. Subscribe to `collection_event`.
+5. Start with IntaSend test keys and test pending, failed and completed payments. Confirm only a completed invoice with matching amount, currency and reference activates the subscription.
 
-Do not activate subscriptions from a browser request, screenshot, receipt upload or unverified callback. Only verified provider transaction data may activate or renew paid access.
+IntaSend's checkout redirect is not payment proof. The webhook challenge and server-side invoice-status lookup are required before fulfilment.
+
+## Firestore rules and deployment safety
+
+The rules allow each owner to read their own subscription and payment records, while client writes to these records are denied. They gate book inventory, copies, readers, loans and notifications on a valid active/trial period. Library creation, book creation and circulation mutations use authenticated Vercel APIs.
+
+**Deploy order matters:** first deploy the latest `feature/subscriptions` branch to Vercel and configure the Firebase Admin service account. Smoke-test sign-in, library creation, and API access. Only then deploy the updated rules with `firebase deploy --only firestore:rules --project mctaba-85685`. The previous production deployment may still use older frontend logic, and a rules deployment before the API is ready can break book access.
+
+Firebase Cloud Functions are deliberately not used because this project must remain on the Firebase Spark free plan. The IntaSend account may have its own transaction fees or account requirements; these are separate from Firebase billing.
+
+## Current limitations / decisions
+
+- Weekly, monthly and yearly prices remain unconfigured.
+- IntaSend credentials and the webhook challenge must be entered securely in Vercel and IntaSend's dashboard by the project owner.
+- Trial is limited to one per owner account and does not auto-renew.
+- Paid subscriptions activate only after server-side verified payment. The code does not create recurring card mandates; renewals currently require the owner to initiate a new checkout.
+- Use test keys and verify the deployed webhook before switching to live credentials.
