@@ -1,4 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { addDoc, collection, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import AuthPortal from './AuthPortal.jsx';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, Bell, BookMarked, BookOpen,
   CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, Download,
@@ -7,7 +10,7 @@ import {
   CircleAlert, CheckCircle2, Bookmark, Mail, CreditCard, ScanLine
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { isFirebaseConfigured } from './firebase.js';
+import { auth, db, isFirebaseConfigured } from './firebase.js';
 
 const initialBooks = [
   { id: 'BK-001', title: 'Things Fall Apart', author: 'Chinua Achebe', category: 'Literature', isbn: '9780385474542', copies: 12, available: 8, status: 'Available', color: 'sage' },
@@ -66,15 +69,26 @@ function SectionHeading({ eyebrow, title, subtitle, action }) {
   </div>;
 }
 
-function App() {
+function Dashboard({ user, library, onSwitchLibrary }) {
   const [activePage, setActivePage] = useState('Overview');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [books, setBooks] = useState(initialBooks);
+  const [books, setBooks] = useState([]);
   const [showAddBook, setShowAddBook] = useState(false);
   const [toast, setToast] = useState('');
   const [newBook, setNewBook] = useState({ title: '', author: '', category: 'Literature', isbn: '', copies: '1' });
   const [range, setRange] = useState('This week');
+
+  useEffect(() => {
+    if (!db || !library?.id) return undefined;
+    return onSnapshot(collection(db, 'libraries', library.id, 'books'), (snapshot) => {
+      setBooks(snapshot.docs.map((item) => ({ id: item.id, color: 'sage', ...item.data() })));
+    }, (error) => {
+      setToast(error.code === 'permission-denied'
+        ? 'Firestore denied access. Check that this account has an active library membership and deploy the current rules.'
+        : 'Could not load books from Firestore. Check your connection and Firebase configuration.');
+    });
+  }, [library?.id]);
 
   const filteredBooks = useMemo(() => books.filter(book =>
     [book.title, book.author, book.category, book.isbn].some(value => value.toLowerCase().includes(query.toLowerCase()))
@@ -85,12 +99,14 @@ function App() {
     window.setTimeout(() => setToast(''), 3200);
   };
 
-  const handleAddBook = (event) => {
+  const handleAddBook = async (event) => {
     event.preventDefault();
     if (!newBook.title.trim() || !newBook.author.trim()) return;
     const copies = Math.max(1, Number(newBook.copies) || 1);
-    setBooks(current => [{
-      id: `BK-${String(current.length + 1).padStart(3, '0')}`,
+    try {
+      await addDoc(collection(db, 'libraries', library.id, 'books'), {
+      createdBy: user.uid,
+      createdAt: serverTimestamp(),
       title: newBook.title.trim(),
       author: newBook.author.trim(),
       category: newBook.category,
@@ -99,11 +115,15 @@ function App() {
       available: copies,
       status: 'Available',
       color: 'sage',
-    }, ...current]);
+    });
+    } catch (error) {
+      setToast(error.code === 'permission-denied' ? 'You do not have permission to add books to this library.' : 'Could not save the book to Firestore. Please try again.');
+      return;
+    }
     setNewBook({ title: '', author: '', category: 'Literature', isbn: '', copies: '1' });
     setShowAddBook(false);
     setActivePage('Inventory');
-    notify('Book added to this demo workspace.');
+    notify('Book saved to your Firestore inventory.');
   };
 
   const pageSubtitle = {
@@ -137,9 +157,9 @@ function App() {
         <button className="icon-button sidebar-close" onClick={() => setMobileNavOpen(false)} aria-label="Close menu"><X size={18}/></button>
       </div>
 
-      <button className="workspace-switcher" onClick={() => notify('Workspace switching will be available when library accounts are connected.')}>
+      <button className="workspace-switcher" onClick={onSwitchLibrary}>
         <div className="workspace-avatar">G</div>
-        <div className="workspace-info"><strong>Greenwood Academy</strong><span>School library</span></div>
+        <div className="workspace-info"><strong>{library.name}</strong><span>{library.location || (library.type ? library.type.charAt(0).toUpperCase() + library.type.slice(1) + ' library' : 'Library workspace')}</span></div>
         <ChevronDown size={16} className="muted-icon"/>
       </button>
 
@@ -162,8 +182,8 @@ function App() {
           <p>Everything your team needs to keep knowledge moving.</p>
           <button onClick={() => notify('Help centre is coming soon.')}>Explore Mctaba <ArrowRight size={14}/></button>
         </div>
-        <button className="profile-button" onClick={() => notify('Profile settings will be connected to Firebase Authentication.')}>
-          <div className="profile-avatar">VO</div><div className="profile-meta"><strong>Vincent Odhiambo</strong><span>Library administrator</span></div><Ellipsis size={19} className="muted-icon"/>
+        <button className="profile-button" onClick={onSwitchLibrary}>
+          <div className="profile-avatar">{(user.displayName || user.email || 'L').slice(0, 2).toUpperCase()}</div><div className="profile-meta"><strong>{user.displayName || user.email}</strong><span>Library administrator · switch workspace</span></div><Ellipsis size={19} className="muted-icon"/>
         </button>
       </div>
     </aside>
@@ -191,7 +211,7 @@ function App() {
           </div>
         </div>
 
-        <div className="demo-banner"><div className="demo-banner-icon"><ShieldCheck size={17}/></div><div><strong>Workspace preview</strong><span>{isFirebaseConfigured ? 'Firebase is configured, but this dashboard still uses sample data until live data services are connected.' : 'Sample data is shown. Configure Firebase Authentication and Firestore before using real library records.'}</span></div><button onClick={() => notify('Next: implement Firebase sign-in, library onboarding and Firestore-backed inventory services.')} >Setup guide <ArrowRight size={14}/></button></div>
+        <div className="demo-banner"><div className="demo-banner-icon"><ShieldCheck size={17}/></div><div><strong>Workspace preview</strong><span>{isFirebaseConfigured ? 'Book inventory is connected to Firestore. Circulation, members, reports and notifications still contain preview data.' : 'Connect Firebase Authentication and Firestore to register your library and save real inventory.'}</span></div><button onClick={() => notify('Inventory writes are live. Next: connect members, circulation, reports and notifications to Firestore.')} >Setup guide <ArrowRight size={14}/></button></div>
 
         {activePage === 'Overview' && <Overview books={books} setActivePage={setActivePage} notify={notify} range={range} setRange={setRange}/>}
         {activePage === 'Inventory' && <Inventory books={filteredBooks} query={query} setQuery={setQuery} onAdd={() => setShowAddBook(true)} onExport={exportBooks} notify={notify}/>}
@@ -206,7 +226,7 @@ function App() {
 
     {showAddBook && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddBook(false); }}>
       <form className="modal-card" onSubmit={handleAddBook}>
-        <div className="modal-heading"><div><span className="eyebrow">INVENTORY</span><h2>Add a new book</h2><p>Add a title to the Greenwood Academy catalogue.</p></div><button type="button" className="icon-button" onClick={() => setShowAddBook(false)} aria-label="Close dialog"><X size={19}/></button></div>
+        <div className="modal-heading"><div><span className="eyebrow">INVENTORY</span><h2>Add a new book</h2><p>Add a title to the {library.name} catalogue.</p></div><button type="button" className="icon-button" onClick={() => setShowAddBook(false)} aria-label="Close dialog"><X size={19}/></button></div>
         <label>Book title <input required autoFocus value={newBook.title} onChange={e => setNewBook({ ...newBook, title: e.target.value })} placeholder="e.g. The River and the Source"/></label>
         <label>Author <input required value={newBook.author} onChange={e => setNewBook({ ...newBook, author: e.target.value })} placeholder="Author's full name"/></label>
         <div className="form-row"><label>Category<select value={newBook.category} onChange={e => setNewBook({ ...newBook, category: e.target.value })}><option>Literature</option><option>Science</option><option>History</option><option>Technology</option><option>Finance</option><option>Personal development</option><option>Reference</option></select></label><label>Number of copies<input type="number" min="1" max="10000" value={newBook.copies} onChange={e => setNewBook({ ...newBook, copies: e.target.value })}/></label></div>
@@ -285,6 +305,39 @@ function Notifications({ notify }) {
 
 function Settings({ notify }) {
   return <div className="settings-grid"><section className="panel settings-panel"><div className="panel-heading"><div><h3>Library profile</h3><p>Details readers and staff see about your library</p></div><div className="settings-profile-mark"><LibraryBig size={22}/></div></div><div className="settings-fields"><label>Library name<input defaultValue="Greenwood Academy Library"/></label><label>Library type<select defaultValue="School library"><option>School library</option><option>University library</option><option>Public library</option><option>Community library</option><option>Private library</option></select></label><label>Contact email<input defaultValue="library@greenwood.example" type="email"/></label><label>Location<input defaultValue="Nairobi, Kenya"/></label></div><div className="settings-actions"><button className="button button--primary" onClick={() => notify('Profile changes are preview-only until Firebase is configured.')}>Save changes</button></div></section><section className="panel settings-panel"><div className="panel-heading"><div><h3>Workspace & access</h3><p>Manage security and library preferences</p></div><ShieldCheck size={20} className="muted-icon"/></div><div className="settings-option"><div><strong>Staff & permissions</strong><span>Invite librarians and assign roles</span></div><button className="button button--secondary" onClick={() => notify('Staff invitations will use Firebase Authentication and trusted backend functions.')}>Manage <ArrowRight size={14}/></button></div><div className="settings-option"><div><strong>Loan policy</strong><span>Default loan period and borrowing limits</span></div><button className="button button--secondary" onClick={() => notify('Loan policy settings will be added with circulation workflows.')}>Configure <ArrowRight size={14}/></button></div><div className="settings-option"><div><strong>Subscription plan</strong><span>Starter preview · billing not connected</span></div><button className="button button--secondary" onClick={() => notify('Subscription plans and payments are planned after core workflows.')}>View plans <ArrowRight size={14}/></button></div><div className="settings-option"><div><strong>Security & audit</strong><span>Access controls and activity history</span></div><button className="button button--secondary" onClick={() => notify('Security rules are included as a starter and require Firebase Emulator testing before production.')}>Review <ArrowRight size={14}/></button></div></section></div>;
+}
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [library, setLibrary] = useState(null);
+
+  useEffect(() => {
+    if (!auth) {
+      setAuthReady(true);
+      return undefined;
+    }
+    return onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      setLibrary(null);
+      setAuthReady(true);
+    });
+  }, []);
+
+  const handleLibraryReady = useCallback((nextLibrary) => {
+    setLibrary(nextLibrary);
+  }, []);
+  const switchLibrary = useCallback(() => setLibrary(null), []);
+
+  if (!authReady) {
+    return <div className="auth-shell"><section className="auth-card"><div className="auth-brand"><span className="auth-logo">M</span><span>mctaba<span className="auth-period">.</span></span></div><p className="auth-description">Loading your secure library workspace…</p></section></div>;
+  }
+
+  if (!user || !library) {
+    return <AuthPortal user={user} onLibraryReady={handleLibraryReady} />;
+  }
+
+  return <Dashboard user={user} library={library} onSwitchLibrary={switchLibrary} />;
 }
 
 export default App;
