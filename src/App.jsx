@@ -214,7 +214,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
         {activePage === 'Overview' && <Overview books={books} setActivePage={setActivePage} notify={notify} range={range} setRange={setRange}/>}
         {activePage === 'Inventory' && <Inventory books={filteredBooks} query={query} setQuery={setQuery} onAdd={() => setShowAddBook(true)} onExport={exportBooks} notify={notify}/>}
         {activePage === 'Circulation' && <Circulation notify={notify}/>}
-        {activePage === 'Members' && <Members notify={notify}/>}
+        {activePage === 'Members' && <Members notify={notify} library={library} user={user}/ >}
         {activePage === 'Reports' && <Reports range={range} setRange={setRange} notify={notify}/>}
         {activePage === 'Notifications' && <Notifications notify={notify}/>}
         {activePage === 'Settings' && <Settings notify={notify}/>}
@@ -283,8 +283,81 @@ function Circulation({ notify }) {
   return <><div className="stats-grid stats-grid--three"><article className="stat-card"><div className="stat-top"><span>Active loans</span><div className="stat-icon stat-icon--green"><ArrowLeftRight size={18}/></div></div><div className="stat-value">186</div><div className="stat-bottom"><span className="stat-detail">Currently borrowed</span></div></article><article className="stat-card"><div className="stat-top"><span>Due today</span><div className="stat-icon stat-icon--orange"><Clock3 size={18}/></div></div><div className="stat-value">8</div><div className="stat-bottom"><span className="stat-detail">Return reminders needed</span></div></article><article className="stat-card"><div className="stat-top"><span>Overdue</span><div className="stat-icon stat-icon--red"><CircleAlert size={18}/></div></div><div className="stat-value">12</div><div className="stat-bottom"><span className="stat-alert">Requires follow-up</span></div></article></div><section className="panel table-panel"><div className="panel-heading"><div><h3>Recent loans</h3><p>Track books currently out with readers</p></div><button className="button button--primary" onClick={() => notify('Checkout workflow will be connected to Firebase transactions next.') }><ScanLine size={16}/> New checkout</button></div><div className="table-scroll"><table><thead><tr><th>BOOK & MEMBER</th><th>DUE DATE</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody>{initialLoans.map((loan,i) => <tr key={loan.book}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${['sage','blue','peach','lavender'][i]}`}>{loan.initials}</div><div><strong>{loan.book}</strong><span>{loan.member}</span></div></div></td><td>{loan.due}</td><td><Badge tone={loan.state === 'Overdue' ? 'danger' : loan.state === 'Due today' ? 'warning' : 'success'}>{loan.state}</Badge></td><td><button className="text-link" onClick={() => notify(`Return processing for “${loan.book}” requires a connected backend.`)}>Process return <ArrowRight size={13}/></button></td></tr>)}</tbody></table></div><div className="table-footer"><span>Showing 4 sample loans</span><span>Demo data · not saved to a database</span></div></section></>;
 }
 
-function Members({ notify }) {
-  return <><div className="inventory-toolbar"><div className="inventory-search"><Search size={17}/><input placeholder="Search members..." onChange={e => {}}/><kbd>/</kbd></div><button className="button button--secondary" onClick={() => notify('Member export will be available with live records.')}><Download size={15}/> Export</button><button className="button button--primary" onClick={() => notify('Member registration form is planned for the next implementation phase.')}><Plus size={16}/> Add member</button></div><section className="panel table-panel"><div className="panel-heading"><div><h3>Library members <span className="subtle-count">342</span></h3><p>Readers registered with Greenwood Academy</p></div><button className="button button--secondary" onClick={() => notify('Member filters will be connected to Firestore.') }><Filter size={15}/> Filters</button></div><div className="table-scroll"><table><thead><tr><th>MEMBER</th><th>MEMBER ID</th><th>TYPE</th><th>ACTIVE LOANS</th><th>STATUS</th><th/></tr></thead><tbody>{initialMembers.map(member => <tr key={member.id}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${member.color}`}>{member.initials}</div><strong>{member.name}</strong></div></td><td className="isbn-cell">{member.id}</td><td>{member.type}</td><td>{member.borrowed}</td><td><Badge tone={member.status === 'Active' ? 'success' : 'warning'}>{member.status}</Badge></td><td><button className="icon-button" aria-label={`Member actions for ${member.name}`} onClick={() => notify(`Member profile for ${member.name} will be available with live records.`)}><Ellipsis size={18}/></button></td></tr>)}</tbody></table></div><div className="table-footer"><span>Showing 4 sample members</span><span>Demo data · not saved to a database</span></div></section></>;
+function Members({ notify, library, user }) {
+  const [members, setMembers] = useState([]);
+  const [query, setQuery] = useState('');
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [newMember, setNewMember] = useState({ name: '', email: '', type: 'Student' });
+
+  useEffect(() => {
+    if (!db || !library?.id) return undefined;
+    return onSnapshot(collection(db, 'libraries', library.id, 'readers'), (snapshot) => {
+      setMembers(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+    }, () => notify('Could not load members. Check your library role and Firestore rules.'));
+  }, [library?.id]);
+
+  const filteredMembers = members.filter((member) =>
+    [member.name || '', member.email || '', member.type || '', member.id || '']
+      .some((value) => value.toLowerCase().includes(query.toLowerCase()))
+  );
+
+  const handleAddMember = async (event) => {
+    event.preventDefault();
+    if (!newMember.name.trim()) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, 'libraries', library.id, 'readers'), {
+        name: newMember.name.trim(),
+        email: newMember.email.trim(),
+        type: newMember.type,
+        status: 'active',
+        createdBy: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      setNewMember({ name: '', email: '', type: 'Student' });
+      setShowAddMember(false);
+      notify('Member saved to Firestore.');
+    } catch (error) {
+      notify(error.code === 'permission-denied' ? 'You do not have permission to add members.' : 'Could not save this member. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <>
+    <div className="inventory-toolbar">
+      <div className="inventory-search"><Search size={17}/><input placeholder="Search members..." value={query} onChange={(e) => setQuery(e.target.value)}/><kbd>/</kbd></div>
+      <button className="button button--secondary" onClick={() => {
+        const rows = [['Name', 'Email', 'Type', 'Status'], ...filteredMembers.map((member) => [member.name, member.email || '', member.type, member.status])];
+        const csv = rows.map((row) => row.map((value) => `"${String(value || '').replaceAll('"', '""')}"`).join(',')).join('\n');
+        const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+        const link = document.createElement('a'); link.href = url; link.download = 'mctaba-members.csv'; link.click(); URL.revokeObjectURL(url);
+      }}><Download size={15}/> Export</button>
+      <button className="button button--primary" onClick={() => setShowAddMember(true)}><Plus size={16}/> Add member</button>
+    </div>
+    <section className="panel table-panel">
+      <div className="panel-heading"><div><h3>Library members <span className="subtle-count">{members.length}</span></h3><p>Readers registered with {library.name}</p></div><Badge tone="success">Live Firestore</Badge></div>
+      <div className="table-scroll"><table><thead><tr><th>MEMBER</th><th>MEMBER ID</th><th>TYPE</th><th>ACTIVE LOANS</th><th>STATUS</th></tr></thead><tbody>
+        {filteredMembers.map((member, index) => {
+          const initials = (member.name || 'Reader').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+          const status = member.status === 'active';
+          return <tr key={member.id}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${['sage', 'blue', 'peach', 'lavender'][index % 4]}`}>{initials}</div><div className="member-table-name"><strong>{member.name}</strong><span>{member.email || 'No email provided'}</span></div></div></td><td className="isbn-cell">MB-{member.id.slice(0, 6).toUpperCase()}</td><td>{member.type || 'Community'}</td><td>—</td><td><Badge tone={status ? 'success' : 'warning'}>{status ? 'Active' : 'Inactive'}</Badge></td></tr>;
+        })}
+      </tbody></table>{filteredMembers.length === 0 && <div className="empty-state"><Users size={28}/><strong>{query ? 'No matching members' : 'No members yet'}</strong><span>{query ? 'Try another name or email.' : 'Register your first reader to start building your member directory.'}</span></div>}</div>
+      <div className="table-footer"><span>Showing {filteredMembers.length} {filteredMembers.length === 1 ? 'member' : 'members'}</span><span>Live Firestore records</span></div>
+    </section>
+    {showAddMember && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowAddMember(false); }}>
+      <form className="modal-card" onSubmit={handleAddMember}>
+        <div className="modal-heading"><div><span className="eyebrow">MEMBERS</span><h2>Register a reader</h2><p>Add a reader to {library.name}.</p></div><button type="button" className="icon-button" onClick={() => setShowAddMember(false)} aria-label="Close dialog"><X size={19}/></button></div>
+        <label>Full name<input required autoFocus maxLength={120} value={newMember.name} onChange={(event) => setNewMember({ ...newMember, name: event.target.value })} placeholder="Reader's full name"/></label>
+        <label>Email <span className="optional-label">OPTIONAL</span><input type="email" maxLength={180} value={newMember.email} onChange={(event) => setNewMember({ ...newMember, email: event.target.value })} placeholder="reader@example.com"/></label>
+        <label>Member type<select value={newMember.type} onChange={(event) => setNewMember({ ...newMember, type: event.target.value })}><option>Student</option><option>Staff</option><option>Community</option><option>Teacher</option><option>Researcher</option><option>Other</option></select></label>
+        <div className="modal-actions"><button type="button" className="button button--secondary" onClick={() => setShowAddMember(false)}>Cancel</button><button className="button button--primary" type="submit" disabled={saving}><Plus size={16}/>{saving ? 'Saving…' : 'Register member'}</button></div>
+      </form>
+    </div>}
+  </>;
 }
 
 function Reports({ range, setRange, notify }) {
