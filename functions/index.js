@@ -86,6 +86,7 @@ exports.createLibrary = onCall(async (request) => {
         ? request.auth.token.email
         : '',
       updatedAt: FieldValue.serverTimestamp(),
+      libraryIds: FieldValue.arrayUnion(libraryRef.id),
       ...(userSnapshot.exists ? {} : { createdAt: FieldValue.serverTimestamp() }),
     }, { merge: true });
     transaction.create(auditRef, {
@@ -97,6 +98,64 @@ exports.createLibrary = onCall(async (request) => {
   });
 
   return { libraryId: libraryRef.id, name };
+});
+
+
+/**
+ * Creates a catalogue title and its physical copy records as one trusted batch.
+ * Copy writes are intentionally blocked from browser clients.
+ */
+exports.createBook = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const libraryId = cleanString(request.data?.libraryId, 'Library ID', 140);
+  const title = cleanString(request.data?.title, 'Book title');
+  const author = cleanString(request.data?.author, 'Author');
+  const category = cleanString(request.data?.category || 'General', 'Category', 80);
+  const isbn = typeof request.data?.isbn === 'string' ? request.data.isbn.trim().slice(0, 32) : '';
+  const copies = Number(request.data?.copies);
+  if (!Number.isInteger(copies) || copies < 1 || copies > 300) {
+    throw new HttpsError('invalid-argument', 'Add between 1 and 300 copies per title.');
+  }
+
+  await requireLibraryRole(libraryId, uid, ['owner', 'admin', 'librarian']);
+  const libraryRef = db.doc(`libraries/${libraryId}`);
+  const bookRef = libraryRef.collection('books').doc();
+  const auditRef = libraryRef.collection('auditLogs').doc();
+  const batch = db.batch();
+  batch.create(bookRef, {
+    title,
+    author,
+    category,
+    isbn,
+    copies,
+    available: copies,
+    status: 'Available',
+    createdBy: uid,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    schemaVersion: 1,
+  });
+
+  for (let index = 1; index <= copies; index += 1) {
+    const copyRef = libraryRef.collection('copies').doc();
+    batch.create(copyRef, {
+      bookId: bookRef.id,
+      copyNumber: index,
+      status: 'available',
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+
+  batch.create(auditRef, {
+    actorId: uid,
+    action: 'book.created',
+    targetId: bookRef.id,
+    metadata: { copies },
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  await batch.commit();
+  return { bookId: bookRef.id, copies };
 });
 
 /**

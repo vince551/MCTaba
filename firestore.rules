@@ -19,9 +19,9 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
       allow create: if signedIn() && request.auth.uid == userId
-        && !request.resource.data.keys().hasAny(['platformRole', 'role', 'isPlatformAdmin']);
+        && !request.resource.data.keys().hasAny(['platformRole', 'role', 'isPlatformAdmin', 'libraryIds']);
       allow update: if signedIn() && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['platformRole', 'role', 'isPlatformAdmin']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['platformRole', 'role', 'isPlatformAdmin', 'libraryIds']);
       allow delete: if false;
     }
 

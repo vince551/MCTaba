@@ -2,74 +2,112 @@
 
 **Your library. Smarter management.**
 
-Mctaba is a multi-tenant library management SaaS for school, university, community, church and private libraries. This repository contains the React/Vite application foundation and the first responsive workspace preview.
+Mctaba is a multi-tenant library management system for school, university, public, community, church and private libraries.
 
 ## Live preview
 
-**Website:** https://mctaba-five.vercel.app
+https://mctaba-five.vercel.app
 
-The preview is deployed from the `feature/mctaba-foundation` branch on Vercel. Several dashboard sections still use sample data; this preview is not yet a production-ready library management service.
+The current preview URL may still serve the previous deployment until the new branch is merged and Vercel finishes building it.
 
-## Current status
+## Implemented in this branch
 
-- Responsive React workspace with overview, inventory, circulation, members, reports, notifications and settings views.
-- Searchable sample book catalogue, add-book modal and CSV inventory export.
-- Firebase client initialization from environment variables.
-- Initial tenant-aware Firestore rules, with sensitive membership, circulation and billing writes denied to browser clients.
-- Demo records are local in-memory sample data. They are not saved to Firestore and must not be treated as real library records.
+- Firebase Authentication screens for account creation, sign-in and password reset.
+- Library onboarding: register a library with a name, type and optional location.
+- Trusted Cloud Function creates the library, first owner membership, audit event and server-managed user-to-library index.
+- Existing users can choose from their registered library workspaces or register another.
+- Book inventory reads live documents from `libraries/{libraryId}/books` in Cloud Firestore.
+- Adding a book uses a trusted Cloud Function to create a title, physical-copy records and an audit event.
+- Member registration, member search and CSV export use Firestore reader records.
+- Checkout and returns call transaction-based Cloud Functions that atomically update loan and copy records.
+- Firestore rules prevent browser users from creating libraries or editing memberships and protect the server-managed `libraryIds` index.
+- Responsive authentication and onboarding screens.
+
+**Not fully live yet:** reports, notifications, dashboard statistics, reservations, billing and most settings still contain preview/demo content. Member active-loan counts and some dashboard analytics are not yet data-backed. Test the authentication, rules and Cloud Functions end-to-end before using real library records.
 
 ## Stack
 
-- React + Vite
-- CSS with responsive layouts
-- Firebase Authentication, Cloud Firestore and Firebase Storage (configuration scaffold)
-- Recharts for dashboard analytics
-- Lucide icons
+- React 19 + Vite
+- Firebase Authentication
+- Cloud Firestore
+- Firebase Cloud Functions (Node.js 20)
+- Firebase Storage scaffolding
+- Recharts and Lucide icons
 
-## Run locally
+## 1. Create and configure a Firebase project
 
-Requirements: Node.js 20+ and npm.
+1. Open the [Firebase Console](https://console.firebase.google.com/) and create a project.
+2. In **Project settings → General**, register a **Web app** and copy its web configuration.
+3. Under **Build → Authentication → Sign-in method**, enable **Email/Password**.
+4. Under **Build → Firestore Database**, create a database. Choose the region carefully; its location cannot easily be changed later.
+5. Install Node.js 20+ and the Firebase CLI, then sign in:
+   ```bash
+   npm install
+   npm install -g firebase-tools
+   firebase login
+   firebase use --add
+   ```
+6. Create a local `.env.local` file from `.env.example` and fill in the Web app configuration values:
+   ```env
+   VITE_FIREBASE_API_KEY=your-web-api-key
+   VITE_FIREBASE_AUTH_DOMAIN=your-project-id.firebaseapp.com
+   VITE_FIREBASE_PROJECT_ID=your-project-id
+   VITE_FIREBASE_STORAGE_BUCKET=your-storage-bucket
+   VITE_FIREBASE_MESSAGING_SENDER_ID=your-messaging-sender-id
+   VITE_FIREBASE_APP_ID=your-web-app-id
+   ```
+7. Deploy the Firestore rules and the library provisioning / circulation functions:
+   ```bash
+   firebase deploy --only firestore:rules,functions
+   ```
+   Cloud Functions deployment may require enabling billing on the Firebase/Google Cloud project. Review usage and budgets before enabling billing.
+8. Run locally:
+   ```bash
+   npm run dev
+   ```
+9. For Vercel, add the same six `VITE_FIREBASE_*` values in **Project Settings → Environment Variables**, for Preview and Production as needed, then redeploy.
 
-```bash
-npm install
-cp .env.example .env.local
-npm run dev
-```
+## 2. How library registration works
 
-Open the local URL printed by Vite.
+1. A library administrator creates an account with an email and password.
+2. They register a library and choose its type.
+3. The trusted `createLibrary` Cloud Function creates the library, owner membership, audit event and user profile index atomically. Browser clients cannot grant themselves an owner role.
+4. The administrator can add catalogue titles. The trusted `createBook` function creates both the title and physical copy records.
+5. Staff can register readers, then check out and return physical copies through transactional Cloud Functions.
 
-## Connect Firebase
+## Firestore data model
 
-1. Create a Firebase project in the Firebase Console.
-2. Enable the Authentication providers you intend to support.
-3. Create a Cloud Firestore database and configure Storage if book cover uploads are needed.
-4. Copy the Firebase web app configuration into `.env.local` using the `VITE_FIREBASE_*` keys from `.env.example`.
-5. Review and test `firestore.rules` in the Firebase Emulator Suite before deploying any rules.
-6. Implement trusted Cloud Functions for library provisioning, membership invitations/role changes, circulation transactions, scheduled notifications, audit logging and verified billing webhooks.
+- `users/{uid}` — user profile and server-managed `libraryIds` index.
+- `libraries/{libraryId}` — library metadata.
+- `libraries/{libraryId}/memberships/{uid}` — role and active status.
+- `libraries/{libraryId}/books/{bookId}` — catalogue titles and aggregate copy counts.
+- `libraries/{libraryId}/copies/{copyId}` — physical copies for circulation.
+- `libraries/{libraryId}/readers/{readerId}` — registered library readers.
+- `libraries/{libraryId}/loans/{loanId}` — transactional circulation records.
+- `libraries/{libraryId}/auditLogs/{logId}` — backend-generated audit events.
 
-Firebase web configuration values are identifiers, not service-account secrets. Never commit service-account JSON, private keys, payment secrets or real `.env.local` files.
+The UI connects library provisioning, book/copy creation, reader registration, checkout and returns to Firestore-backed services. More complete workflows such as renewals, reservations and member activity history remain on the roadmap.
 
-## Multi-tenant security design
+## Security notes
 
-Library-owned records are scoped below `libraries/{libraryId}`. Access is intended to be based on an active membership record at `libraries/{libraryId}/memberships/{userId}`, with a role such as `owner`, `admin` or `librarian`.
+- Firestore rules are a starter policy and must be tested with the Firebase Emulator Suite before real data is entered.
+- The Cloud Function Admin SDK bypasses Firestore rules; server-side validation and least-privilege IAM are therefore important.
+- Firebase Web app configuration is intended for client-side use, but it must be paired with correct Authentication, Firestore rules, API restrictions and App Check where appropriate.
+- Never commit `.env.local`, service-account JSON, private keys, or payment secrets.
+- Restrict authorized domains in Firebase Authentication to the domains you actually use.
+- Do not treat the preview UI or unconnected modules as a production library system.
 
-Membership creation and role changes, physical-copy status transitions, loan mutations, notifications, audit logs and subscription writes are deliberately blocked from direct browser writes in the starter rules. These operations require trusted backend functions and server-side validation. The rules are a starting point and are not production-ready until reviewed and tested with the Emulator Suite, including cross-tenant access-denial cases.
-
-## Build
+## Build and validation
 
 ```bash
 npm run build
-npm run preview
+node --check functions/index.js
 ```
 
 ## Roadmap
 
-1. Complete authentication and library onboarding with trusted tenant provisioning.
-2. Replace demo records with Firestore-backed inventory and member management.
-3. Implement transactional checkout, returns, renewals and reservations.
-4. Add scheduled email notifications, audit trails and data-backed reports.
-5. Add subscription plans, payment-provider webhooks, usage limits and deployment monitoring.
-
-## Repository workflow
-
-The initial implementation is being developed on `feature/mctaba-foundation`; `main` is intentionally left unchanged until the foundation has been reviewed.
+1. Add emulator-based security tests for tenant isolation, user onboarding and all role combinations.
+2. Add copy editing, renewals, reservations and member activity history.
+3. Implement notifications, data-backed reports and audit views.
+4. Add App Check, error monitoring, backups and production deployment checks.
+5. Add subscriptions only after the core library workflows and security model are validated.

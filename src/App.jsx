@@ -1,4 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { addDoc, collection, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import AuthPortal from './AuthPortal.jsx';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, Bell, BookMarked, BookOpen,
   CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, Download,
@@ -7,7 +11,7 @@ import {
   CircleAlert, CheckCircle2, Bookmark, Mail, CreditCard, ScanLine
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { isFirebaseConfigured } from './firebase.js';
+import { auth, db, functions, isFirebaseConfigured } from './firebase.js';
 
 const initialBooks = [
   { id: 'BK-001', title: 'Things Fall Apart', author: 'Chinua Achebe', category: 'Literature', isbn: '9780385474542', copies: 12, available: 8, status: 'Available', color: 'sage' },
@@ -66,15 +70,26 @@ function SectionHeading({ eyebrow, title, subtitle, action }) {
   </div>;
 }
 
-function App() {
+function Dashboard({ user, library, onSwitchLibrary }) {
   const [activePage, setActivePage] = useState('Overview');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [books, setBooks] = useState(initialBooks);
+  const [books, setBooks] = useState([]);
   const [showAddBook, setShowAddBook] = useState(false);
   const [toast, setToast] = useState('');
   const [newBook, setNewBook] = useState({ title: '', author: '', category: 'Literature', isbn: '', copies: '1' });
   const [range, setRange] = useState('This week');
+
+  useEffect(() => {
+    if (!db || !library?.id) return undefined;
+    return onSnapshot(collection(db, 'libraries', library.id, 'books'), (snapshot) => {
+      setBooks(snapshot.docs.map((item) => ({ id: item.id, color: 'sage', ...item.data() })));
+    }, (error) => {
+      setToast(error.code === 'permission-denied'
+        ? 'Firestore denied access. Check that this account has an active library membership and deploy the current rules.'
+        : 'Could not load books from Firestore. Check your connection and Firebase configuration.');
+    });
+  }, [library?.id]);
 
   const filteredBooks = useMemo(() => books.filter(book =>
     [book.title, book.author, book.category, book.isbn].some(value => value.toLowerCase().includes(query.toLowerCase()))
@@ -85,25 +100,28 @@ function App() {
     window.setTimeout(() => setToast(''), 3200);
   };
 
-  const handleAddBook = (event) => {
+  const handleAddBook = async (event) => {
     event.preventDefault();
     if (!newBook.title.trim() || !newBook.author.trim()) return;
     const copies = Math.max(1, Number(newBook.copies) || 1);
-    setBooks(current => [{
-      id: `BK-${String(current.length + 1).padStart(3, '0')}`,
-      title: newBook.title.trim(),
-      author: newBook.author.trim(),
-      category: newBook.category,
-      isbn: newBook.isbn.trim() || 'Not provided',
-      copies,
-      available: copies,
-      status: 'Available',
-      color: 'sage',
-    }, ...current]);
+    try {
+      const createBook = httpsCallable(functions, 'createBook');
+      await createBook({
+        libraryId: library.id,
+        title: newBook.title.trim(),
+        author: newBook.author.trim(),
+        category: newBook.category,
+        isbn: newBook.isbn.trim(),
+        copies,
+      });
+    } catch (error) {
+      setToast(error.code === 'permission-denied' ? 'You do not have permission to add books to this library.' : 'Could not save the book to Firestore. Please try again.');
+      return;
+    }
     setNewBook({ title: '', author: '', category: 'Literature', isbn: '', copies: '1' });
     setShowAddBook(false);
     setActivePage('Inventory');
-    notify('Book added to this demo workspace.');
+    notify('Book and physical copies saved to Firestore.');
   };
 
   const pageSubtitle = {
@@ -137,9 +155,9 @@ function App() {
         <button className="icon-button sidebar-close" onClick={() => setMobileNavOpen(false)} aria-label="Close menu"><X size={18}/></button>
       </div>
 
-      <button className="workspace-switcher" onClick={() => notify('Workspace switching will be available when library accounts are connected.')}>
+      <button className="workspace-switcher" onClick={onSwitchLibrary}>
         <div className="workspace-avatar">G</div>
-        <div className="workspace-info"><strong>Greenwood Academy</strong><span>School library</span></div>
+        <div className="workspace-info"><strong>{library.name}</strong><span>{library.location || (library.type ? library.type.charAt(0).toUpperCase() + library.type.slice(1) + ' library' : 'Library workspace')}</span></div>
         <ChevronDown size={16} className="muted-icon"/>
       </button>
 
@@ -162,8 +180,8 @@ function App() {
           <p>Everything your team needs to keep knowledge moving.</p>
           <button onClick={() => notify('Help centre is coming soon.')}>Explore Mctaba <ArrowRight size={14}/></button>
         </div>
-        <button className="profile-button" onClick={() => notify('Profile settings will be connected to Firebase Authentication.')}>
-          <div className="profile-avatar">VO</div><div className="profile-meta"><strong>Vincent Odhiambo</strong><span>Library administrator</span></div><Ellipsis size={19} className="muted-icon"/>
+        <button className="profile-button" onClick={onSwitchLibrary}>
+          <div className="profile-avatar">{(user.displayName || user.email || 'L').slice(0, 2).toUpperCase()}</div><div className="profile-meta"><strong>{user.displayName || user.email}</strong><span>Library administrator · switch workspace</span></div><Ellipsis size={19} className="muted-icon"/>
         </button>
       </div>
     </aside>
@@ -191,12 +209,12 @@ function App() {
           </div>
         </div>
 
-        <div className="demo-banner"><div className="demo-banner-icon"><ShieldCheck size={17}/></div><div><strong>Workspace preview</strong><span>{isFirebaseConfigured ? 'Firebase is configured, but this dashboard still uses sample data until live data services are connected.' : 'Sample data is shown. Configure Firebase Authentication and Firestore before using real library records.'}</span></div><button onClick={() => notify('Next: implement Firebase sign-in, library onboarding and Firestore-backed inventory services.')} >Setup guide <ArrowRight size={14}/></button></div>
+        <div className="demo-banner"><div className="demo-banner-icon"><ShieldCheck size={17}/></div><div><strong>Workspace preview</strong><span>{isFirebaseConfigured ? 'Book inventory is connected to Firestore. Circulation, members, reports and notifications still contain preview data.' : 'Connect Firebase Authentication and Firestore to register your library and save real inventory.'}</span></div><button onClick={() => notify('Inventory writes are live. Next: connect members, circulation, reports and notifications to Firestore.')} >Setup guide <ArrowRight size={14}/></button></div>
 
         {activePage === 'Overview' && <Overview books={books} setActivePage={setActivePage} notify={notify} range={range} setRange={setRange}/>}
         {activePage === 'Inventory' && <Inventory books={filteredBooks} query={query} setQuery={setQuery} onAdd={() => setShowAddBook(true)} onExport={exportBooks} notify={notify}/>}
-        {activePage === 'Circulation' && <Circulation notify={notify}/>}
-        {activePage === 'Members' && <Members notify={notify}/>}
+        {activePage === 'Circulation' && <Circulation notify={notify} library={library} user={user} />}
+        {activePage === 'Members' && <Members notify={notify} library={library} user={user} />}
         {activePage === 'Reports' && <Reports range={range} setRange={setRange} notify={notify}/>}
         {activePage === 'Notifications' && <Notifications notify={notify}/>}
         {activePage === 'Settings' && <Settings notify={notify}/>}
@@ -206,10 +224,10 @@ function App() {
 
     {showAddBook && <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setShowAddBook(false); }}>
       <form className="modal-card" onSubmit={handleAddBook}>
-        <div className="modal-heading"><div><span className="eyebrow">INVENTORY</span><h2>Add a new book</h2><p>Add a title to the Greenwood Academy catalogue.</p></div><button type="button" className="icon-button" onClick={() => setShowAddBook(false)} aria-label="Close dialog"><X size={19}/></button></div>
+        <div className="modal-heading"><div><span className="eyebrow">INVENTORY</span><h2>Add a new book</h2><p>Add a title to the {library.name} catalogue.</p></div><button type="button" className="icon-button" onClick={() => setShowAddBook(false)} aria-label="Close dialog"><X size={19}/></button></div>
         <label>Book title <input required autoFocus value={newBook.title} onChange={e => setNewBook({ ...newBook, title: e.target.value })} placeholder="e.g. The River and the Source"/></label>
         <label>Author <input required value={newBook.author} onChange={e => setNewBook({ ...newBook, author: e.target.value })} placeholder="Author's full name"/></label>
-        <div className="form-row"><label>Category<select value={newBook.category} onChange={e => setNewBook({ ...newBook, category: e.target.value })}><option>Literature</option><option>Science</option><option>History</option><option>Technology</option><option>Finance</option><option>Personal development</option><option>Reference</option></select></label><label>Number of copies<input type="number" min="1" max="10000" value={newBook.copies} onChange={e => setNewBook({ ...newBook, copies: e.target.value })}/></label></div>
+        <div className="form-row"><label>Category<select value={newBook.category} onChange={e => setNewBook({ ...newBook, category: e.target.value })}><option>Literature</option><option>Science</option><option>History</option><option>Technology</option><option>Finance</option><option>Personal development</option><option>Reference</option></select></label><label>Number of copies<input type="number" min="1" max="300" value={newBook.copies} onChange={e => setNewBook({ ...newBook, copies: e.target.value })}/></label></div>
         <label>ISBN <span className="optional-label">OPTIONAL</span><input value={newBook.isbn} onChange={e => setNewBook({ ...newBook, isbn: e.target.value })} placeholder="ISBN-13"/></label>
         <div className="modal-actions"><button type="button" className="button button--secondary" onClick={() => setShowAddBook(false)}>Cancel</button><button className="button button--primary" type="submit"><Plus size={16}/> Add to inventory</button></div>
       </form>
@@ -258,15 +276,183 @@ function Overview({ books, setActivePage, notify, range, setRange }) {
 }
 
 function Inventory({ books, query, setQuery, onAdd, onExport, notify }) {
-  return <><div className="inventory-toolbar"><div className="inventory-search"><Search size={17}/><input placeholder="Search title, author, ISBN..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>/</kbd></div><button className="button button--secondary" onClick={() => notify('Category filters will be connected to the live catalogue.')}><Filter size={15}/> Filters</button><button className="button button--secondary" onClick={onExport}><Download size={15}/> Export</button><button className="button button--primary" onClick={onAdd}><Plus size={16}/> Add a book</button></div><section className="panel table-panel"><div className="panel-heading"><div><h3>All books <span className="subtle-count">{books.length}</span></h3><p>Manage titles in your collection</p></div><button className="icon-button" aria-label="More inventory actions" onClick={() => notify('More inventory actions are coming soon.')}><Ellipsis size={20}/></button></div><div className="table-scroll"><table><thead><tr><th>BOOK</th><th>ISBN</th><th>CATEGORY</th><th>COPIES</th><th>AVAILABILITY</th><th/></tr></thead><tbody>{books.map(book => <tr key={book.id}><td><div className="table-book"><div className={`table-book-cover book-cover--${book.color}`}><BookOpen size={17}/></div><div><strong>{book.title}</strong><span>{book.author}</span></div></div></td><td className="isbn-cell">{book.isbn}</td><td><span className="category-pill">{book.category}</span></td><td><strong>{book.copies}</strong></td><td><div className="availability-cell"><span className="availability-track"><i style={{ width: `${book.copies ? (book.available / book.copies) * 100 : 0}%` }}/></span><span>{book.available}/{book.copies}</span></div></td><td><button className="icon-button" aria-label={`Book actions for ${book.title}`} onClick={() => notify(`Book actions for “${book.title}” will be enabled with live data.`)}><Ellipsis size={18}/></button></td></tr>)}</tbody></table>{books.length === 0 && <div className="empty-state"><BookOpen size={28}/><strong>No books found</strong><span>Try a different search or add a new book.</span></div>}</div><div className="table-footer"><span>Showing {books.length} {books.length === 1 ? 'title' : 'titles'}</span><span>Demo data · not saved to a database</span></div></section></>;
+  return <><div className="inventory-toolbar"><div className="inventory-search"><Search size={17}/><input placeholder="Search title, author, ISBN..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>/</kbd></div><button className="button button--secondary" onClick={() => notify('Category filters will be connected to the live catalogue.')}><Filter size={15}/> Filters</button><button className="button button--secondary" onClick={onExport}><Download size={15}/> Export</button><button className="button button--primary" onClick={onAdd}><Plus size={16}/> Add a book</button></div><section className="panel table-panel"><div className="panel-heading"><div><h3>All books <span className="subtle-count">{books.length}</span></h3><p>Manage titles in your collection</p></div><button className="icon-button" aria-label="More inventory actions" onClick={() => notify('More inventory actions are coming soon.')}><Ellipsis size={20}/></button></div><div className="table-scroll"><table><thead><tr><th>BOOK</th><th>ISBN</th><th>CATEGORY</th><th>COPIES</th><th>AVAILABILITY</th><th/></tr></thead><tbody>{books.map(book => <tr key={book.id}><td><div className="table-book"><div className={`table-book-cover book-cover--${book.color}`}><BookOpen size={17}/></div><div><strong>{book.title}</strong><span>{book.author}</span></div></div></td><td className="isbn-cell">{book.isbn}</td><td><span className="category-pill">{book.category}</span></td><td><strong>{book.copies}</strong></td><td><div className="availability-cell"><span className="availability-track"><i style={{ width: `${book.copies ? (book.available / book.copies) * 100 : 0}%` }}/></span><span>{book.available}/{book.copies}</span></div></td><td><button className="icon-button" aria-label={`Book actions for ${book.title}`} onClick={() => notify(`Book actions for “${book.title}” will be enabled with live data.`)}><Ellipsis size={18}/></button></td></tr>)}</tbody></table>{books.length === 0 && <div className="empty-state"><BookOpen size={28}/><strong>No books found</strong><span>Try a different search or add a new book.</span></div>}</div><div className="table-footer"><span>Showing {books.length} {books.length === 1 ? 'title' : 'titles'}</span><span>Live Firestore inventory</span></div></section></>;
 }
 
-function Circulation({ notify }) {
-  return <><div className="stats-grid stats-grid--three"><article className="stat-card"><div className="stat-top"><span>Active loans</span><div className="stat-icon stat-icon--green"><ArrowLeftRight size={18}/></div></div><div className="stat-value">186</div><div className="stat-bottom"><span className="stat-detail">Currently borrowed</span></div></article><article className="stat-card"><div className="stat-top"><span>Due today</span><div className="stat-icon stat-icon--orange"><Clock3 size={18}/></div></div><div className="stat-value">8</div><div className="stat-bottom"><span className="stat-detail">Return reminders needed</span></div></article><article className="stat-card"><div className="stat-top"><span>Overdue</span><div className="stat-icon stat-icon--red"><CircleAlert size={18}/></div></div><div className="stat-value">12</div><div className="stat-bottom"><span className="stat-alert">Requires follow-up</span></div></article></div><section className="panel table-panel"><div className="panel-heading"><div><h3>Recent loans</h3><p>Track books currently out with readers</p></div><button className="button button--primary" onClick={() => notify('Checkout workflow will be connected to Firebase transactions next.') }><ScanLine size={16}/> New checkout</button></div><div className="table-scroll"><table><thead><tr><th>BOOK & MEMBER</th><th>DUE DATE</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody>{initialLoans.map((loan,i) => <tr key={loan.book}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${['sage','blue','peach','lavender'][i]}`}>{loan.initials}</div><div><strong>{loan.book}</strong><span>{loan.member}</span></div></div></td><td>{loan.due}</td><td><Badge tone={loan.state === 'Overdue' ? 'danger' : loan.state === 'Due today' ? 'warning' : 'success'}>{loan.state}</Badge></td><td><button className="text-link" onClick={() => notify(`Return processing for “${loan.book}” requires a connected backend.`)}>Process return <ArrowRight size={13}/></button></td></tr>)}</tbody></table></div><div className="table-footer"><span>Showing 4 sample loans</span><span>Demo data · not saved to a database</span></div></section></>;
+function Circulation({ notify, library, user }) {
+  const [books, setBooks] = useState([]);
+  const [readers, setReaders] = useState([]);
+  const [copies, setCopies] = useState([]);
+  const [loans, setLoans] = useState([]);
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [selectedCopy, setSelectedCopy] = useState('');
+  const [selectedReader, setSelectedReader] = useState('');
+  const [dueAt, setDueAt] = useState(() => new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 16));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!db || !library?.id) return undefined;
+    const base = ['libraries', library.id];
+    const unsubscribers = [
+      onSnapshot(collection(db, ...base, 'books'), (snapshot) => setBooks(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
+      onSnapshot(collection(db, ...base, 'readers'), (snapshot) => setReaders(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
+      onSnapshot(collection(db, ...base, 'copies'), (snapshot) => setCopies(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
+      onSnapshot(collection(db, ...base, 'loans'), (snapshot) => setLoans(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
+        () => notify('Could not load circulation records. Check your library role and Firestore rules.')),
+    ];
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [library?.id]);
+
+  const activeLoans = loans.filter((loan) => loan.status === 'active');
+  const availableCopies = copies.filter((copy) => copy.status === 'available');
+  const bookById = new Map(books.map((book) => [book.id, book]));
+  const readerById = new Map(readers.map((reader) => [reader.id, reader]));
+  const dueToday = activeLoans.filter((loan) => loan.dueAt?.toDate && loan.dueAt.toDate().toDateString() === new Date().toDateString()).length;
+  const overdue = activeLoans.filter((loan) => loan.dueAt?.toDate && loan.dueAt.toDate().getTime() < Date.now()).length;
+
+  const checkout = async (event) => {
+    event.preventDefault();
+    if (!selectedCopy || !selectedReader || !dueAt) {
+      notify('Choose an available copy, a reader and a due date.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const checkoutBook = httpsCallable(functions, 'checkoutBook');
+      await checkoutBook({ libraryId: library.id, copyId: selectedCopy, readerId: selectedReader, dueAt: new Date(dueAt).toISOString() });
+      setShowCheckout(false);
+      setSelectedCopy('');
+      setSelectedReader('');
+      notify('Book checked out. Firestore circulation records are updated.');
+    } catch (error) {
+      notify(error.message || 'Checkout failed. Verify that the reader is active and the copy is available.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const returnLoan = async (loanId) => {
+    setSaving(true);
+    try {
+      const returnBook = httpsCallable(functions, 'returnBook');
+      await returnBook({ libraryId: library.id, loanId });
+      notify('Book returned and its physical copy released.');
+    } catch (error) {
+      notify(error.message || 'Could not process this return.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <>
+    <div className="stats-grid stats-grid--three">
+      <article className="stat-card"><div className="stat-top"><span>Active loans</span><div className="stat-icon stat-icon--green"><ArrowLeftRight size={18}/></div></div><div className="stat-value">{activeLoans.length}</div><div className="stat-bottom"><span className="stat-detail">Currently borrowed</span></div></article>
+      <article className="stat-card"><div className="stat-top"><span>Due today</span><div className="stat-icon stat-icon--orange"><Clock3 size={18}/></div></div><div className="stat-value">{dueToday}</div><div className="stat-bottom"><span className="stat-detail">Return reminders needed</span></div></article>
+      <article className="stat-card"><div className="stat-top"><span>Overdue</span><div className="stat-icon stat-icon--red"><CircleAlert size={18}/></div></div><div className="stat-value">{overdue}</div><div className="stat-bottom"><span className="stat-alert">Requires follow-up</span></div></article>
+    </div>
+    {showCheckout && <form className="panel circulation-checkout" onSubmit={checkout}>
+      <div className="panel-heading"><div><h3>New checkout</h3><p>Issue an available physical copy to an active reader.</p></div><button className="icon-button" type="button" aria-label="Close checkout form" onClick={() => setShowCheckout(false)}><X size={18}/></button></div>
+      <div className="circulation-form-grid">
+        <label>Available copy<select required value={selectedCopy} onChange={(event) => setSelectedCopy(event.target.value)}><option value="">Choose a book copy</option>{availableCopies.map((copy) => <option key={copy.id} value={copy.id}>{bookById.get(copy.bookId)?.title || 'Unknown title'} · Copy {copy.copyNumber || '—'}</option>)}</select></label>
+        <label>Reader<select required value={selectedReader} onChange={(event) => setSelectedReader(event.target.value)}><option value="">Choose a reader</option>{readers.filter((reader) => reader.status === 'active').map((reader) => <option key={reader.id} value={reader.id}>{reader.name}</option>)}</select></label>
+        <label>Due date and time<input required type="datetime-local" value={dueAt} min={new Date().toISOString().slice(0, 16)} onChange={(event) => setDueAt(event.target.value)}/></label>
+      </div>
+      {availableCopies.length === 0 && <p className="circulation-help">No copies are currently available. Add a book with copies in Inventory first.</p>}
+      {readers.filter((reader) => reader.status === 'active').length === 0 && <p className="circulation-help">Register an active reader in Members before checking out books.</p>}
+      <div className="modal-actions"><button className="button button--secondary" type="button" onClick={() => setShowCheckout(false)}>Cancel</button><button className="button button--primary" type="submit" disabled={saving || !availableCopies.length || !readers.some((reader) => reader.status === 'active')}><ScanLine size={16}/>{saving ? 'Processing…' : 'Confirm checkout'}</button></div>
+    </form>}
+    <section className="panel table-panel">
+      <div className="panel-heading"><div><h3>Current loans <span className="subtle-count">{activeLoans.length}</span></h3><p>Live circulation records for {library.name}</p></div><button className="button button--primary" onClick={() => setShowCheckout((open) => !open)}><ScanLine size={16}/> New checkout</button></div>
+      <div className="table-scroll"><table><thead><tr><th>BOOK & MEMBER</th><th>DUE DATE</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody>
+        {activeLoans.map((loan, index) => {
+          const book = bookById.get(loan.bookId);
+          const reader = readerById.get(loan.readerId);
+          const due = loan.dueAt?.toDate ? loan.dueAt.toDate() : null;
+          const isOverdue = due && due.getTime() < Date.now();
+          const isDueToday = due && due.toDateString() === new Date().toDateString();
+          return <tr key={loan.id}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${['sage', 'blue', 'peach', 'lavender'][index % 4]}`}>{(reader?.name || 'R').split(/\s+/).slice(0,2).map((part) => part[0]).join('').toUpperCase()}</div><div><strong>{book?.title || 'Book title unavailable'}</strong><span>{reader?.name || 'Reader unavailable'}</span></div></div></td><td>{due ? due.toLocaleString() : 'No due date'}</td><td><Badge tone={isOverdue ? 'danger' : isDueToday ? 'warning' : 'success'}>{isOverdue ? 'Overdue' : isDueToday ? 'Due today' : 'On loan'}</Badge></td><td><button className="text-link" disabled={saving} onClick={() => returnLoan(loan.id)}>Process return <ArrowRight size={13}/></button></td></tr>;
+        })}
+      </tbody></table>{activeLoans.length === 0 && <div className="empty-state"><ArrowLeftRight size={28}/><strong>No active loans</strong><span>Use New checkout to issue an available copy to a registered reader.</span></div>}</div>
+      <div className="table-footer"><span>{activeLoans.length} active {activeLoans.length === 1 ? 'loan' : 'loans'}</span><span>Live Firestore + transactional Cloud Functions</span></div>
+    </section>
+  </>;
 }
 
-function Members({ notify }) {
-  return <><div className="inventory-toolbar"><div className="inventory-search"><Search size={17}/><input placeholder="Search members..." onChange={e => {}}/><kbd>/</kbd></div><button className="button button--secondary" onClick={() => notify('Member export will be available with live records.')}><Download size={15}/> Export</button><button className="button button--primary" onClick={() => notify('Member registration form is planned for the next implementation phase.')}><Plus size={16}/> Add member</button></div><section className="panel table-panel"><div className="panel-heading"><div><h3>Library members <span className="subtle-count">342</span></h3><p>Readers registered with Greenwood Academy</p></div><button className="button button--secondary" onClick={() => notify('Member filters will be connected to Firestore.') }><Filter size={15}/> Filters</button></div><div className="table-scroll"><table><thead><tr><th>MEMBER</th><th>MEMBER ID</th><th>TYPE</th><th>ACTIVE LOANS</th><th>STATUS</th><th/></tr></thead><tbody>{initialMembers.map(member => <tr key={member.id}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${member.color}`}>{member.initials}</div><strong>{member.name}</strong></div></td><td className="isbn-cell">{member.id}</td><td>{member.type}</td><td>{member.borrowed}</td><td><Badge tone={member.status === 'Active' ? 'success' : 'warning'}>{member.status}</Badge></td><td><button className="icon-button" aria-label={`Member actions for ${member.name}`} onClick={() => notify(`Member profile for ${member.name} will be available with live records.`)}><Ellipsis size={18}/></button></td></tr>)}</tbody></table></div><div className="table-footer"><span>Showing 4 sample members</span><span>Demo data · not saved to a database</span></div></section></>;
+function Members({ notify, library, user }) {
+  const [members, setMembers] = useState([]);
+  const [query, setQuery] = useState('');
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [newMember, setNewMember] = useState({ name: '', email: '', type: 'Student' });
+
+  useEffect(() => {
+    if (!db || !library?.id) return undefined;
+    return onSnapshot(collection(db, 'libraries', library.id, 'readers'), (snapshot) => {
+      setMembers(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+    }, () => notify('Could not load members. Check your library role and Firestore rules.'));
+  }, [library?.id]);
+
+  const filteredMembers = members.filter((member) =>
+    [member.name || '', member.email || '', member.type || '', member.id || '']
+      .some((value) => value.toLowerCase().includes(query.toLowerCase()))
+  );
+
+  const handleAddMember = async (event) => {
+    event.preventDefault();
+    if (!newMember.name.trim()) return;
+    setSaving(true);
+    try {
+      await addDoc(collection(db, 'libraries', library.id, 'readers'), {
+        name: newMember.name.trim(),
+        email: newMember.email.trim(),
+        type: newMember.type,
+        status: 'active',
+        createdBy: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      setNewMember({ name: '', email: '', type: 'Student' });
+      setShowAddMember(false);
+      notify('Member saved to Firestore.');
+    } catch (error) {
+      notify(error.code === 'permission-denied' ? 'You do not have permission to add members.' : 'Could not save this member. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <>
+    <div className="inventory-toolbar">
+      <div className="inventory-search"><Search size={17}/><input placeholder="Search members..." value={query} onChange={(e) => setQuery(e.target.value)}/><kbd>/</kbd></div>
+      <button className="button button--secondary" onClick={() => {
+        const rows = [['Name', 'Email', 'Type', 'Status'], ...filteredMembers.map((member) => [member.name, member.email || '', member.type, member.status])];
+        const csv = rows.map((row) => row.map((value) => `"${String(value || '').replaceAll('"', '""')}"`).join(',')).join('\n');
+        const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+        const link = document.createElement('a'); link.href = url; link.download = 'mctaba-members.csv'; link.click(); URL.revokeObjectURL(url);
+      }}><Download size={15}/> Export</button>
+      <button className="button button--primary" onClick={() => setShowAddMember(true)}><Plus size={16}/> Add member</button>
+    </div>
+    <section className="panel table-panel">
+      <div className="panel-heading"><div><h3>Library members <span className="subtle-count">{members.length}</span></h3><p>Readers registered with {library.name}</p></div><Badge tone="success">Live Firestore</Badge></div>
+      <div className="table-scroll"><table><thead><tr><th>MEMBER</th><th>MEMBER ID</th><th>TYPE</th><th>ACTIVE LOANS</th><th>STATUS</th></tr></thead><tbody>
+        {filteredMembers.map((member, index) => {
+          const initials = (member.name || 'Reader').split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+          const status = member.status === 'active';
+          return <tr key={member.id}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${['sage', 'blue', 'peach', 'lavender'][index % 4]}`}>{initials}</div><div className="member-table-name"><strong>{member.name}</strong><span>{member.email || 'No email provided'}</span></div></div></td><td className="isbn-cell">MB-{member.id.slice(0, 6).toUpperCase()}</td><td>{member.type || 'Community'}</td><td>—</td><td><Badge tone={status ? 'success' : 'warning'}>{status ? 'Active' : 'Inactive'}</Badge></td></tr>;
+        })}
+      </tbody></table>{filteredMembers.length === 0 && <div className="empty-state"><Users size={28}/><strong>{query ? 'No matching members' : 'No members yet'}</strong><span>{query ? 'Try another name or email.' : 'Register your first reader to start building your member directory.'}</span></div>}</div>
+      <div className="table-footer"><span>Showing {filteredMembers.length} {filteredMembers.length === 1 ? 'member' : 'members'}</span><span>Live Firestore records</span></div>
+    </section>
+    {showAddMember && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowAddMember(false); }}>
+      <form className="modal-card" onSubmit={handleAddMember}>
+        <div className="modal-heading"><div><span className="eyebrow">MEMBERS</span><h2>Register a reader</h2><p>Add a reader to {library.name}.</p></div><button type="button" className="icon-button" onClick={() => setShowAddMember(false)} aria-label="Close dialog"><X size={19}/></button></div>
+        <label>Full name<input required autoFocus maxLength={120} value={newMember.name} onChange={(event) => setNewMember({ ...newMember, name: event.target.value })} placeholder="Reader's full name"/></label>
+        <label>Email <span className="optional-label">OPTIONAL</span><input type="email" maxLength={180} value={newMember.email} onChange={(event) => setNewMember({ ...newMember, email: event.target.value })} placeholder="reader@example.com"/></label>
+        <label>Member type<select value={newMember.type} onChange={(event) => setNewMember({ ...newMember, type: event.target.value })}><option>Student</option><option>Staff</option><option>Community</option><option>Teacher</option><option>Researcher</option><option>Other</option></select></label>
+        <div className="modal-actions"><button type="button" className="button button--secondary" onClick={() => setShowAddMember(false)}>Cancel</button><button className="button button--primary" type="submit" disabled={saving}><Plus size={16}/>{saving ? 'Saving…' : 'Register member'}</button></div>
+      </form>
+    </div>}
+  </>;
 }
 
 function Reports({ range, setRange, notify }) {
@@ -285,6 +471,39 @@ function Notifications({ notify }) {
 
 function Settings({ notify }) {
   return <div className="settings-grid"><section className="panel settings-panel"><div className="panel-heading"><div><h3>Library profile</h3><p>Details readers and staff see about your library</p></div><div className="settings-profile-mark"><LibraryBig size={22}/></div></div><div className="settings-fields"><label>Library name<input defaultValue="Greenwood Academy Library"/></label><label>Library type<select defaultValue="School library"><option>School library</option><option>University library</option><option>Public library</option><option>Community library</option><option>Private library</option></select></label><label>Contact email<input defaultValue="library@greenwood.example" type="email"/></label><label>Location<input defaultValue="Nairobi, Kenya"/></label></div><div className="settings-actions"><button className="button button--primary" onClick={() => notify('Profile changes are preview-only until Firebase is configured.')}>Save changes</button></div></section><section className="panel settings-panel"><div className="panel-heading"><div><h3>Workspace & access</h3><p>Manage security and library preferences</p></div><ShieldCheck size={20} className="muted-icon"/></div><div className="settings-option"><div><strong>Staff & permissions</strong><span>Invite librarians and assign roles</span></div><button className="button button--secondary" onClick={() => notify('Staff invitations will use Firebase Authentication and trusted backend functions.')}>Manage <ArrowRight size={14}/></button></div><div className="settings-option"><div><strong>Loan policy</strong><span>Default loan period and borrowing limits</span></div><button className="button button--secondary" onClick={() => notify('Loan policy settings will be added with circulation workflows.')}>Configure <ArrowRight size={14}/></button></div><div className="settings-option"><div><strong>Subscription plan</strong><span>Starter preview · billing not connected</span></div><button className="button button--secondary" onClick={() => notify('Subscription plans and payments are planned after core workflows.')}>View plans <ArrowRight size={14}/></button></div><div className="settings-option"><div><strong>Security & audit</strong><span>Access controls and activity history</span></div><button className="button button--secondary" onClick={() => notify('Security rules are included as a starter and require Firebase Emulator testing before production.')}>Review <ArrowRight size={14}/></button></div></section></div>;
+}
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [library, setLibrary] = useState(null);
+
+  useEffect(() => {
+    if (!auth) {
+      setAuthReady(true);
+      return undefined;
+    }
+    return onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      setLibrary(null);
+      setAuthReady(true);
+    });
+  }, []);
+
+  const handleLibraryReady = useCallback((nextLibrary) => {
+    setLibrary(nextLibrary);
+  }, []);
+  const switchLibrary = useCallback(() => setLibrary(null), []);
+
+  if (!authReady) {
+    return <div className="auth-shell"><section className="auth-card"><div className="auth-brand"><span className="auth-logo">M</span><span>mctaba<span className="auth-period">.</span></span></div><p className="auth-description">Loading your secure library workspace…</p></section></div>;
+  }
+
+  if (!user || !library) {
+    return <AuthPortal user={user} onLibraryReady={handleLibraryReady} />;
+  }
+
+  return <Dashboard user={user} library={library} onSwitchLibrary={switchLibrary} />;
 }
 
 export default App;
