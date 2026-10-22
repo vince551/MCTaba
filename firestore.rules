@@ -18,7 +18,8 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
-      allow create: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId
+        && !request.resource.data.keys().hasAny(['platformRole', 'role', 'isPlatformAdmin']);
       allow update: if signedIn() && request.auth.uid == userId
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['platformRole', 'role', 'isPlatformAdmin']);
       allow delete: if false;
@@ -26,8 +27,8 @@ service cloud.firestore {
 
     match /libraries/{libraryId} {
       allow read: if isActiveMember(libraryId);
-      allow create: if signedIn()
-        && request.resource.data.ownerId == request.auth.uid;
+      // Library provisioning must atomically create the library and its initial owner membership via trusted backend code.
+      allow create: if false;
       allow update: if hasRole(libraryId, ['owner', 'admin']);
       allow delete: if false;
 
