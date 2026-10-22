@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { addDoc, collection, doc, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, doc, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore';
 import AuthPortal from './AuthPortal.jsx';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, Bell, BookMarked, BookOpen,
@@ -473,6 +473,7 @@ function Subscriptions({ notify, library }) {
   const [subscription, setSubscription] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [cycle, setCycle] = useState('monthly');
+  const [payments, setPayments] = useState([]);
   useEffect(() => {
     if (!db || !library?.id) { setLoaded(true); return undefined; }
     return onSnapshot(doc(db, 'subscriptions', library.id), (snap) => {
@@ -481,6 +482,18 @@ function Subscriptions({ notify, library }) {
       if (data?.requestedBillingCycle || data?.billingCycle) setCycle(data.requestedBillingCycle || data.billingCycle);
     }, () => { setSubscription(null); setLoaded(true); });
   }, [library?.id]);
+  useEffect(() => {
+    if (!db || !library?.id || !auth.currentUser?.uid) return undefined;
+    const paymentQuery = query(
+      collection(db, 'subscriptionPayments'),
+      where('ownerId', '==', auth.currentUser.uid),
+    );
+    return onSnapshot(paymentQuery, (snapshot) => {
+      setPayments(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+        .filter((payment) => payment.libraryId === library.id)
+        .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)));
+    }, () => setPayments([]));
+  }, [library?.id]);
   const expiry = subscription?.currentPeriodEnd?.toDate ? subscription.currentPeriodEnd.toDate() : subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
   const expiryLabel = expiry && !Number.isNaN(expiry.getTime()) ? expiry.toLocaleDateString() : 'Not available yet';
   const plans = [
@@ -488,7 +501,7 @@ function Subscriptions({ notify, library }) {
     { id: 'monthly', name: 'Monthly', duration: '30 days', description: 'A simple monthly renewal', popular: true },
     { id: 'yearly', name: 'Yearly', duration: '365 days', description: 'One payment for a full year' },
   ];
-  const status = subscription?.status || 'not-configured';
+  const status = ['active', 'trialing'].includes(subscription?.status) && expiry && expiry.getTime() <= Date.now() ? 'expired' : subscription?.status || 'not-configured';
   const chooseCycle = async (billingCycle) => {
     setCycle(billingCycle);
     try {
@@ -530,6 +543,7 @@ function Subscriptions({ notify, library }) {
     <div className="subscription-notice"><CreditCard size={18}/><div><strong>Payment and renewal</strong><span>IntaSend checkout is available once the platform administrator configures the weekly, monthly and yearly KES prices. No amount is guessed, and checkout will remain disabled by the API until pricing is set.</span></div><button className="button button--secondary" onClick={startCheckout}>Continue to secure checkout</button></div>
     <section className="panel subscription-history"><div className="panel-heading"><div><h3>Subscription record & payment history</h3><p>Subscription status for {library.name}; verified payment records will appear after a payment provider is connected.</p></div><Badge tone={loaded && subscription ? 'success' : 'neutral'}>{loaded && subscription ? 'Record found' : 'Awaiting setup'}</Badge></div>
       {!loaded ? <div className="empty-state"><Clock3 size={25}/><strong>Loading billing record</strong><span>Checking the secure subscription record.</span></div> : subscription ? <div className="subscription-record"><div><span>Plan</span><strong>{subscription.planName || subscription.planId || 'Library plan'}</strong></div><div><span>Billing cycle</span><strong>{subscription.billingCycle || 'Not recorded'}</strong></div><div><span>Status</span><strong>{status.replaceAll('_', ' ')}</strong></div><div><span>Renewal / expiry</span><strong>{expiryLabel}</strong></div></div> : <div className="empty-state"><CreditCard size={27}/><strong>No billing record yet</strong><span>The secure billing backend must create this record before subscription payments can be processed.</span></div>}
+      <div className="subscription-payment-list"><h4>Payment attempts</h4>{payments.length ? payments.map((payment) => <div className="subscription-record" key={payment.id}><div><span>Reference</span><strong>{payment.apiRef}</strong></div><div><span>Amount</span><strong>{payment.currency} {Number(payment.amount).toFixed(2)}</strong></div><div><span>Cycle</span><strong>{payment.billingCycle}</strong></div><div><span>Status</span><strong>{payment.status}</strong></div></div>) : <p>No payment attempts recorded for this library yet.</p>}</div>
     </section>
   </div>;
 }
