@@ -358,3 +358,15 @@ th:last-child, td:last-child { padding-right: 17px; text-align: right; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* Live Firebase workflows */
+.circulation-checkout { padding: 20px; margin-bottom: 18px; }
+.circulation-form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 4px 0 12px; }
+.circulation-form-grid label { display: flex; flex-direction: column; gap: 7px; min-width: 0; color: #647267; font-size: 11px; font-weight: 750; }
+.circulation-form-grid input, .circulation-form-grid select { width: 100%; min-width: 0; min-height: 42px; padding: 0 10px; border: 1px solid #dfe6de; border-radius: 9px; background: #fff; color: #26392d; font: inherit; font-size: 11px; }
+.circulation-form-grid input:focus, .circulation-form-grid select:focus { outline: 2px solid #b8d7c9; border-color: #6c9b7b; }
+.circulation-help { margin: 0 0 12px; color: #8a6b34; font-size: 11px; line-height: 1.5; }
+.member-table-name { display: grid; gap: 3px; min-width: 0; }
+.member-table-name span { color: #89958c; font-size: 10px; overflow-wrap: anywhere; }
+.button:disabled, .text-link:disabled { opacity: .55; cursor: wait; }
+@media (max-width: 760px) { .circulation-form-grid { grid-template-columns: 1fr; } .circulation-checkout { padding: 15px; } }
