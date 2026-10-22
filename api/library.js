@@ -1,4 +1,4 @@
-import { authenticate, db, FieldValue, requireLibraryRole, respondError, text } from './_lib/admin.js';
+import { authenticate, db, FieldValue, Timestamp, requireSubscriptionAccess, requireLibraryRole, respondError, text } from './_lib/admin.js';
 import { allowMethods, bodyObject } from './_lib/http.js';
 
 const LIBRARY_TYPES = new Set(['school', 'university', 'public', 'community', 'church', 'private', 'other']);
@@ -25,6 +25,9 @@ export default async function handler(req, res) {
       const membershipRef = libraryRef.collection('memberships').doc(uid);
       const userRef = database.doc(`users/${uid}`);
       const auditRef = libraryRef.collection('auditLogs').doc();
+      const subscriptionRef = database.doc(`subscriptions/${libraryRef.id}`);
+      const trialNow = Timestamp.now();
+      const trialEnd = Timestamp.fromMillis(trialNow.toMillis() + 14 * 24 * 60 * 60 * 1000);
       await database.runTransaction(async (tx) => {
         const userSnapshot = await tx.get(userRef);
         tx.create(libraryRef, {
@@ -35,7 +38,9 @@ export default async function handler(req, res) {
           userId: uid, role: 'owner', permissions: ['*'], status: 'active',
           joinedAt: FieldValue.serverTimestamp(),
         });
+        const trialAvailable = !userSnapshot.get('trialUsedAt');
         tx.set(userRef, {
+          ...(trialAvailable ? { trialUsedAt: trialNow } : {}),
           displayName: typeof identity.name === 'string' ? identity.name.slice(0, 120) : '',
           email: typeof identity.email === 'string' ? identity.email : '',
           updatedAt: FieldValue.serverTimestamp(),
@@ -45,6 +50,14 @@ export default async function handler(req, res) {
         tx.create(auditRef, {
           actorId: uid, action: 'library.created', targetId: libraryRef.id,
           createdAt: FieldValue.serverTimestamp(),
+        });
+        tx.create(subscriptionRef, {
+          libraryId: libraryRef.id, ownerId: uid, libraryName: name,
+          status: trialAvailable ? 'trialing' : 'awaiting_payment_setup',
+          paymentStatus: trialAvailable ? 'not_required' : 'not_started',
+          provider: null, billingCycle: 'monthly', currency: 'KES', amount: null,
+          ...(trialAvailable ? { trialStartedAt: trialNow, trialUsedAt: trialNow, currentPeriodStart: trialNow, trialEndsAt: trialEnd, currentPeriodEnd: trialEnd } : {}),
+          createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         });
       });
       return res.status(201).json({ libraryId: libraryRef.id, name });
@@ -63,6 +76,7 @@ export default async function handler(req, res) {
         throw error;
       }
       await requireLibraryRole(database, libraryId, uid, ['owner', 'admin', 'librarian']);
+      await requireSubscriptionAccess(database, libraryId);
       const libraryRef = database.doc(`libraries/${libraryId}`);
       const bookRef = libraryRef.collection('books').doc();
       const auditRef = libraryRef.collection('auditLogs').doc();
