@@ -214,7 +214,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
         {activePage === 'Overview' && <Overview books={books} setActivePage={setActivePage} notify={notify} range={range} setRange={setRange}/>}
         {activePage === 'Inventory' && <Inventory books={filteredBooks} query={query} setQuery={setQuery} onAdd={() => setShowAddBook(true)} onExport={exportBooks} notify={notify}/>}
         {activePage === 'Circulation' && <Circulation notify={notify}/>}
-        {activePage === 'Members' && <Members notify={notify} library={library} user={user}/ >}
+        {activePage === 'Members' && <Members notify={notify} library={library} user={user} />}
         {activePage === 'Reports' && <Reports range={range} setRange={setRange} notify={notify}/>}
         {activePage === 'Notifications' && <Notifications notify={notify}/>}
         {activePage === 'Settings' && <Settings notify={notify}/>}
