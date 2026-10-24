@@ -17,12 +17,11 @@ This directory is the new Laravel 12 + PostgreSQL backend. The existing React/Vi
 ```bash
 composer install
 php artisan key:generate
-php artisan install:api
 php artisan migrate
 php artisan serve
 ```
 
-If `php artisan install:api` adds/updates Sanctum scaffolding, review its changes before committing. The Sanctum dependency is already declared here.
+Sanctum and the personal access token migration are already included in this scaffold; do not run `install:api`, which could publish a duplicate token-table migration.
 
 ## API
 
