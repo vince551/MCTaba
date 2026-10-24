@@ -4,6 +4,10 @@
 
 Mctaba is a multi-tenant library management system for school, university, public, community, church and private libraries.
 
+## Backend migration status
+
+The `feature/laravel-postgres-migration` branch introduces a Laravel 12 + PostgreSQL API under `backend/` and connects account access, library onboarding, inventory, readers, and circulation screens to it. Billing, reports, notifications, production hosting, and the verified Firestore data import are still unfinished. This branch is **not yet a production cutover**; the current production deployment and existing Firestore data remain untouched until the checklist in [`backend/README.md`](backend/README.md) is completed.
+
 ## Live preview
 
 https://mctaba-five.vercel.app

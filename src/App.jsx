@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { addDoc, collection, doc, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore';
 import AuthPortal from './AuthPortal.jsx';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, Bell, BookMarked, BookOpen,
@@ -10,8 +8,7 @@ import {
   CircleAlert, CheckCircle2, Bookmark, Mail, CreditCard, ScanLine
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { auth, db, isFirebaseConfigured } from './firebase.js';
-import { apiRequest } from './api.js';
+import { apiRequest, getAuthToken, normalizeBook, normalizeUser, setAuthToken } from './api.js';
 
 const initialBooks = [
   { id: 'BK-001', title: 'Things Fall Apart', author: 'Chinua Achebe', category: 'Literature', isbn: '9780385474542', copies: 12, available: 8, status: 'Available', color: 'sage' },
@@ -82,14 +79,18 @@ function Dashboard({ user, library, onSwitchLibrary }) {
   const [range, setRange] = useState('This week');
 
   useEffect(() => {
-    if (!db || !library?.id) return undefined;
-    return onSnapshot(collection(db, 'libraries', library.id, 'books'), (snapshot) => {
-      setBooks(snapshot.docs.map((item) => ({ id: item.id, color: 'sage', ...item.data() })));
-    }, (error) => {
-      setToast(error.code === 'permission-denied'
-        ? 'Firestore denied access. Check that this account has an active library membership and deploy the current rules.'
-        : 'Could not load books from Firestore. Check your connection and Firebase configuration.');
-    });
+    let cancelled = false;
+    async function loadBooks() {
+      if (!library?.id) return;
+      try {
+        const result = await apiRequest(`/api/libraries/${library.id}/books`);
+        if (!cancelled) setBooks((result.data || []).map(normalizeBook));
+      } catch (error) {
+        if (!cancelled) setToast(error.message || 'Could not load books from the Mctaba API.');
+      }
+    }
+    loadBooks();
+    return () => { cancelled = true; };
   }, [library?.id]);
 
   const filteredBooks = useMemo(() => books.filter(book =>
@@ -106,14 +107,18 @@ function Dashboard({ user, library, onSwitchLibrary }) {
     if (!newBook.title.trim() || !newBook.author.trim()) return;
     const copies = Math.max(1, Number(newBook.copies) || 1);
     try {
-      await apiRequest('/api/library', { action: 'createBook',
-        libraryId: library.id,
-        title: newBook.title.trim(),
-        author: newBook.author.trim(),
-        category: newBook.category,
-        isbn: newBook.isbn.trim(),
-        copies,
+      await apiRequest(`/api/libraries/${library.id}/books`, {
+        method: 'POST',
+        body: {
+          title: newBook.title.trim(),
+          author: newBook.author.trim(),
+          category: newBook.category,
+          isbn: newBook.isbn.trim() || null,
+          copies,
+        },
       });
+      const refreshed = await apiRequest(`/api/libraries/${library.id}/books`);
+      setBooks((refreshed.data || []).map(normalizeBook));
     } catch (error) {
       setToast(error.message || 'Could not save the book to Firestore. Please try again.');
       return;
@@ -121,7 +126,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
     setNewBook({ title: '', author: '', category: 'Literature', isbn: '', copies: '1' });
     setShowAddBook(false);
     setActivePage('Inventory');
-    notify('Book and physical copies saved to Firestore.');
+    notify('Book and physical copies saved to Mctaba.');
   };
 
   const pageSubtitle = {
@@ -210,7 +215,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
           </div>
         </div>
 
-        <div className="demo-banner"><div className="demo-banner-icon"><ShieldCheck size={17}/></div><div><strong>Workspace preview</strong><span>{isFirebaseConfigured ? 'Book inventory is connected to Firestore. Circulation, members, reports and notifications still contain preview data.' : 'Connect Firebase Authentication and Firestore to register your library and save real inventory.'}</span></div><button onClick={() => notify('Inventory writes are live. Next: connect members, circulation, reports and notifications to Firestore.')} >Setup guide <ArrowRight size={14}/></button></div>
+        <div className="demo-banner"><div className="demo-banner-icon"><ShieldCheck size={17}/></div><div><strong>Workspace preview</strong><span>Book inventory is connected to the Laravel API. Reports, notifications, billing and settings are still being migrated.</span></div><button onClick={() => notify('Inventory is connected to the Laravel API. Other modules are being migrated.')} >Setup guide <ArrowRight size={14}/></button></div>
 
         {activePage === 'Overview' && <Overview books={books} setActivePage={setActivePage} notify={notify} range={range} setRange={setRange}/>}
         {activePage === 'Inventory' && <Inventory books={filteredBooks} query={query} setQuery={setQuery} onAdd={() => setShowAddBook(true)} onExport={exportBooks} notify={notify}/>}
@@ -278,7 +283,7 @@ function Overview({ books, setActivePage, notify, range, setRange }) {
 }
 
 function Inventory({ books, query, setQuery, onAdd, onExport, notify }) {
-  return <><div className="inventory-toolbar"><div className="inventory-search"><Search size={17}/><input placeholder="Search title, author, ISBN..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>/</kbd></div><button className="button button--secondary" onClick={() => notify('Category filters will be connected to the live catalogue.')}><Filter size={15}/> Filters</button><button className="button button--secondary" onClick={onExport}><Download size={15}/> Export</button><button className="button button--primary" onClick={onAdd}><Plus size={16}/> Add a book</button></div><section className="panel table-panel"><div className="panel-heading"><div><h3>All books <span className="subtle-count">{books.length}</span></h3><p>Manage titles in your collection</p></div><button className="icon-button" aria-label="More inventory actions" onClick={() => notify('More inventory actions are coming soon.')}><Ellipsis size={20}/></button></div><div className="table-scroll"><table><thead><tr><th>BOOK</th><th>ISBN</th><th>CATEGORY</th><th>COPIES</th><th>AVAILABILITY</th><th/></tr></thead><tbody>{books.map(book => <tr key={book.id}><td><div className="table-book"><div className={`table-book-cover book-cover--${book.color}`}><BookOpen size={17}/></div><div><strong>{book.title}</strong><span>{book.author}</span></div></div></td><td className="isbn-cell">{book.isbn}</td><td><span className="category-pill">{book.category}</span></td><td><strong>{book.copies}</strong></td><td><div className="availability-cell"><span className="availability-track"><i style={{ width: `${book.copies ? (book.available / book.copies) * 100 : 0}%` }}/></span><span>{book.available}/{book.copies}</span></div></td><td><button className="icon-button" aria-label={`Book actions for ${book.title}`} onClick={() => notify(`Book actions for “${book.title}” will be enabled with live data.`)}><Ellipsis size={18}/></button></td></tr>)}</tbody></table>{books.length === 0 && <div className="empty-state"><BookOpen size={28}/><strong>No books found</strong><span>Try a different search or add a new book.</span></div>}</div><div className="table-footer"><span>Showing {books.length} {books.length === 1 ? 'title' : 'titles'}</span><span>Live Firestore inventory</span></div></section></>;
+  return <><div className="inventory-toolbar"><div className="inventory-search"><Search size={17}/><input placeholder="Search title, author, ISBN..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>/</kbd></div><button className="button button--secondary" onClick={() => notify('Category filters will be connected to the live catalogue.')}><Filter size={15}/> Filters</button><button className="button button--secondary" onClick={onExport}><Download size={15}/> Export</button><button className="button button--primary" onClick={onAdd}><Plus size={16}/> Add a book</button></div><section className="panel table-panel"><div className="panel-heading"><div><h3>All books <span className="subtle-count">{books.length}</span></h3><p>Manage titles in your collection</p></div><button className="icon-button" aria-label="More inventory actions" onClick={() => notify('More inventory actions are coming soon.')}><Ellipsis size={20}/></button></div><div className="table-scroll"><table><thead><tr><th>BOOK</th><th>ISBN</th><th>CATEGORY</th><th>COPIES</th><th>AVAILABILITY</th><th/></tr></thead><tbody>{books.map(book => <tr key={book.id}><td><div className="table-book"><div className={`table-book-cover book-cover--${book.color}`}><BookOpen size={17}/></div><div><strong>{book.title}</strong><span>{book.author}</span></div></div></td><td className="isbn-cell">{book.isbn}</td><td><span className="category-pill">{book.category}</span></td><td><strong>{book.copies}</strong></td><td><div className="availability-cell"><span className="availability-track"><i style={{ width: `${book.copies ? (book.available / book.copies) * 100 : 0}%` }}/></span><span>{book.available}/{book.copies}</span></div></td><td><button className="icon-button" aria-label={`Book actions for ${book.title}`} onClick={() => notify(`Book actions for “${book.title}” will be enabled with live data.`)}><Ellipsis size={18}/></button></td></tr>)}</tbody></table>{books.length === 0 && <div className="empty-state"><BookOpen size={28}/><strong>No books found</strong><span>Try a different search or add a new book.</span></div>}</div><div className="table-footer"><span>Showing {books.length} {books.length === 1 ? 'title' : 'titles'}</span><span>Live Mctaba inventory</span></div></section></>;
 }
 
 function Circulation({ notify, library, user }) {
@@ -293,16 +298,36 @@ function Circulation({ notify, library, user }) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!db || !library?.id) return undefined;
-    const base = ['libraries', library.id];
-    const unsubscribers = [
-      onSnapshot(collection(db, ...base, 'books'), (snapshot) => setBooks(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
-      onSnapshot(collection(db, ...base, 'readers'), (snapshot) => setReaders(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
-      onSnapshot(collection(db, ...base, 'copies'), (snapshot) => setCopies(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))),
-      onSnapshot(collection(db, ...base, 'loans'), (snapshot) => setLoans(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))),
-        () => notify('Could not load circulation records. Check your library role and Firestore rules.')),
-    ];
-    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+    let cancelled = false;
+    async function loadCirculation() {
+      if (!library?.id) return;
+      try {
+        const [bookResult, readerResult, copyResult, loanResult] = await Promise.all([
+          apiRequest(`/api/libraries/${library.id}/books`),
+          apiRequest(`/api/libraries/${library.id}/readers`),
+          apiRequest(`/api/libraries/${library.id}/copies`),
+          apiRequest(`/api/libraries/${library.id}/loans`),
+        ]);
+        if (cancelled) return;
+        setBooks((bookResult.data || []).map(normalizeBook));
+        setReaders((readerResult.data || []).map((reader) => ({
+          ...reader, id: String(reader.id), type: reader.type || 'community',
+          status: String(reader.status || 'active').toLowerCase(),
+        })));
+        setCopies((copyResult.data || []).map((copy) => ({
+          ...copy, id: String(copy.id), bookId: String(copy.book_id), copyNumber: copy.barcode,
+        })));
+        setLoans((loanResult.data || []).map((loan) => ({
+          ...loan, id: String(loan.id), bookId: String(loan.copy?.book?.id || ''),
+          readerId: String(loan.reader_id), dueAt: loan.due_at ? { toDate: () => new Date(loan.due_at) } : null,
+          reader: loan.reader, book: loan.copy?.book,
+        })));
+      } catch (error) {
+        if (!cancelled) notify(error.message || 'Could not load circulation records from the Mctaba API.');
+      }
+    }
+    loadCirculation();
+    return () => { cancelled = true; };
   }, [library?.id]);
 
   const activeLoans = loans.filter((loan) => loan.status === 'active');
@@ -320,11 +345,29 @@ function Circulation({ notify, library, user }) {
     }
     setSaving(true);
     try {
-      await apiRequest('/api/circulation', { action: 'checkoutBook', libraryId: library.id, copyId: selectedCopy, readerId: selectedReader, dueAt: new Date(dueAt).toISOString() });
+      const result = await apiRequest(`/api/libraries/${library.id}/loans/checkout`, {
+        method: 'POST',
+        body: { copy_id: Number(selectedCopy), reader_id: Number(selectedReader), due_at: new Date(dueAt).toISOString() },
+      });
+      const loan = result.data;
+      setLoans((current) => [{
+        ...loan,
+        id: String(loan.id),
+        bookId: String(loan.copy?.book?.id || ''),
+        readerId: String(loan.reader_id),
+        dueAt: loan.due_at ? { toDate: () => new Date(loan.due_at) } : null,
+        reader: loan.reader,
+        book: loan.copy?.book,
+      }, ...current]);
+      setCopies((current) => current.map((copy) => String(copy.id) === String(selectedCopy) ? { ...copy, status: 'borrowed' } : copy));
       setShowCheckout(false);
       setSelectedCopy('');
       setSelectedReader('');
-      notify('Book checked out. Firestore circulation records are updated.');
+      notify('Book checked out successfully.');
+      setShowCheckout(false);
+      setSelectedCopy('');
+      setSelectedReader('');
+      notify('Book checked out successfully.');
     } catch (error) {
       notify(error.message || 'Checkout failed. Verify that the reader is active and the copy is available.');
     } finally {
@@ -335,7 +378,14 @@ function Circulation({ notify, library, user }) {
   const returnLoan = async (loanId) => {
     setSaving(true);
     try {
-      await apiRequest('/api/circulation', { action: 'returnBook', libraryId: library.id, loanId });
+      await apiRequest(`/api/libraries/${library.id}/loans/${loanId}/return`, { method: 'POST' });
+      const returnedLoan = loans.find((loan) => String(loan.id) === String(loanId));
+      setLoans((current) => current.map((loan) => String(loan.id) === String(loanId)
+        ? { ...loan, status: 'returned', returned_at: new Date().toISOString() }
+        : loan));
+      if (returnedLoan?.copy_id) {
+        setCopies((current) => current.map((copy) => String(copy.id) === String(returnedLoan.copy_id) ? { ...copy, status: 'available' } : copy));
+      }
       notify('Book returned and its physical copy released.');
     } catch (error) {
       notify(error.message || 'Could not process this return.');
@@ -373,7 +423,7 @@ function Circulation({ notify, library, user }) {
           return <tr key={loan.id}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${['sage', 'blue', 'peach', 'lavender'][index % 4]}`}>{(reader?.name || 'R').split(/\s+/).slice(0,2).map((part) => part[0]).join('').toUpperCase()}</div><div><strong>{book?.title || 'Book title unavailable'}</strong><span>{reader?.name || 'Reader unavailable'}</span></div></div></td><td>{due ? due.toLocaleString() : 'No due date'}</td><td><Badge tone={isOverdue ? 'danger' : isDueToday ? 'warning' : 'success'}>{isOverdue ? 'Overdue' : isDueToday ? 'Due today' : 'On loan'}</Badge></td><td><button className="text-link" disabled={saving} onClick={() => returnLoan(loan.id)}>Process return <ArrowRight size={13}/></button></td></tr>;
         })}
       </tbody></table>{activeLoans.length === 0 && <div className="empty-state"><ArrowLeftRight size={28}/><strong>No active loans</strong><span>Use New checkout to issue an available copy to a registered reader.</span></div>}</div>
-      <div className="table-footer"><span>{activeLoans.length} active {activeLoans.length === 1 ? 'loan' : 'loans'}</span><span>Live Firestore + transactional Cloud Functions</span></div>
+      <div className="table-footer"><span>{activeLoans.length} active {activeLoans.length === 1 ? 'loan' : 'loans'}</span><span>Live Laravel API transactions</span></div>
     </section>
   </>;
 }
@@ -386,10 +436,18 @@ function Members({ notify, library, user }) {
   const [newMember, setNewMember] = useState({ name: '', email: '', type: 'Student' });
 
   useEffect(() => {
-    if (!db || !library?.id) return undefined;
-    return onSnapshot(collection(db, 'libraries', library.id, 'readers'), (snapshot) => {
-      setMembers(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
-    }, () => notify('Could not load members. Check your library role and Firestore rules.'));
+    let cancelled = false;
+    async function loadMembers() {
+      if (!library?.id) return;
+      try {
+        const result = await apiRequest(`/api/libraries/${library.id}/readers`);
+        if (!cancelled) setMembers((result.data || []).map((member) => ({ ...member, id: String(member.id), type: member.type || 'community' })));
+      } catch (error) {
+        if (!cancelled) notify(error.message || 'Could not load members from the Mctaba API.');
+      }
+    }
+    loadMembers();
+    return () => { cancelled = true; };
   }, [library?.id]);
 
   const filteredMembers = members.filter((member) =>
@@ -402,18 +460,19 @@ function Members({ notify, library, user }) {
     if (!newMember.name.trim()) return;
     setSaving(true);
     try {
-      await addDoc(collection(db, 'libraries', library.id, 'readers'), {
-        name: newMember.name.trim(),
-        email: newMember.email.trim(),
-        type: newMember.type,
-        status: 'active',
-        createdBy: user.uid,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+      await apiRequest(`/api/libraries/${library.id}/readers`, {
+        method: 'POST',
+        body: {
+          name: newMember.name.trim(),
+          email: newMember.email.trim() || null,
+          type: newMember.type.toLowerCase(),
+        },
       });
+      const refreshed = await apiRequest(`/api/libraries/${library.id}/readers`);
+      setMembers((refreshed.data || []).map((member) => ({ ...member, id: String(member.id), type: member.type || 'community' })));
       setNewMember({ name: '', email: '', type: 'Student' });
       setShowAddMember(false);
-      notify('Member saved to Firestore.');
+      notify('Member registered successfully.');
     } catch (error) {
       notify(error.code === 'permission-denied' ? 'You do not have permission to add members.' : 'Could not save this member. Please try again.');
     } finally {
@@ -441,7 +500,7 @@ function Members({ notify, library, user }) {
           return <tr key={member.id}><td><div className="loan-cell"><div className={`member-avatar member-avatar--${['sage', 'blue', 'peach', 'lavender'][index % 4]}`}>{initials}</div><div className="member-table-name"><strong>{member.name}</strong><span>{member.email || 'No email provided'}</span></div></div></td><td className="isbn-cell">MB-{member.id.slice(0, 6).toUpperCase()}</td><td>{member.type || 'Community'}</td><td>—</td><td><Badge tone={status ? 'success' : 'warning'}>{status ? 'Active' : 'Inactive'}</Badge></td></tr>;
         })}
       </tbody></table>{filteredMembers.length === 0 && <div className="empty-state"><Users size={28}/><strong>{query ? 'No matching members' : 'No members yet'}</strong><span>{query ? 'Try another name or email.' : 'Register your first reader to start building your member directory.'}</span></div>}</div>
-      <div className="table-footer"><span>Showing {filteredMembers.length} {filteredMembers.length === 1 ? 'member' : 'members'}</span><span>Live Firestore records</span></div>
+      <div className="table-footer"><span>Showing {filteredMembers.length} {filteredMembers.length === 1 ? 'member' : 'members'}</span><span>Live Mctaba API records</span></div>
     </section>
     {showAddMember && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowAddMember(false); }}>
       <form className="modal-card" onSubmit={handleAddMember}>
@@ -470,81 +529,13 @@ function Notifications({ notify }) {
 }
 
 function Subscriptions({ notify, library }) {
-  const [subscription, setSubscription] = useState(null);
-  const [loaded, setLoaded] = useState(false);
-  const [cycle, setCycle] = useState('monthly');
-  const [payments, setPayments] = useState([]);
-  useEffect(() => {
-    if (!db || !library?.id) { setLoaded(true); return undefined; }
-    return onSnapshot(doc(db, 'subscriptions', library.id), (snap) => {
-      const data = snap.exists() ? snap.data() : null;
-      setSubscription(data); setLoaded(true);
-      if (data?.requestedBillingCycle || data?.billingCycle) setCycle(data.requestedBillingCycle || data.billingCycle);
-    }, () => { setSubscription(null); setLoaded(true); });
-  }, [library?.id]);
-  useEffect(() => {
-    if (!db || !library?.id || !auth.currentUser?.uid) return undefined;
-    const paymentQuery = query(
-      collection(db, 'subscriptionPayments'),
-      where('ownerId', '==', auth.currentUser.uid),
-    );
-    return onSnapshot(paymentQuery, (snapshot) => {
-      setPayments(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-        .filter((payment) => payment.libraryId === library.id)
-        .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)));
-    }, () => setPayments([]));
-  }, [library?.id]);
-  const expiry = subscription?.currentPeriodEnd?.toDate ? subscription.currentPeriodEnd.toDate() : subscription?.currentPeriodEnd ? new Date(subscription.currentPeriodEnd) : null;
-  const expiryLabel = expiry && !Number.isNaN(expiry.getTime()) ? expiry.toLocaleDateString() : 'Not available yet';
-  const plans = [
-    { id: 'weekly', name: 'Weekly', duration: '7 days', price: 1200, description: 'Flexible week-to-week access' },
-    { id: 'monthly', name: 'Monthly', duration: '30 days', price: 3500, description: 'A simple monthly renewal', popular: true },
-    { id: 'yearly', name: 'Yearly', duration: '365 days', price: 35000, description: 'One payment for a full year', saving: 'Save KSh 7,000 vs monthly' },
-  ];
-  const status = ['active', 'trialing'].includes(subscription?.status) && expiry && expiry.getTime() <= Date.now() ? 'expired' : subscription?.status || 'not-configured';
-  const chooseCycle = async (billingCycle) => {
-    setCycle(billingCycle);
-    try {
-      if (!subscription?.trialUsedAt && !['active', 'trialing'].includes(subscription?.status)) {
-        const trial = await apiRequest('/api/subscriptions', { action: 'startTrial', libraryId: library.id });
-        await apiRequest('/api/subscriptions', { action: 'selectCycle', libraryId: library.id, billingCycle });
-        notify(trial.message || 'Your 14-day free trial has started.');
-        return;
-      }
-      const result = await apiRequest('/api/subscriptions', { action: 'selectCycle', libraryId: library.id, billingCycle });
-      notify(result.message || 'Billing cycle saved. Payment is not activated yet.');
-    } catch (error) {
-      notify(error.message || 'Could not save the billing cycle.');
-    }
-  };
-  const startCheckout = async () => {
-    try {
-      const result = await apiRequest('/api/subscriptions', {
-        action: 'createCheckout', libraryId: library.id, billingCycle: cycle,
-      });
-      if (!result.checkoutUrl) throw new Error('Checkout URL was not returned by the payment provider.');
-      window.location.assign(result.checkoutUrl);
-    } catch (error) {
-      notify(error.message || 'Secure checkout is not available yet.');
-    }
-  };
-  const trialAvailable = !subscription?.trialUsedAt && !['active', 'trialing'].includes(subscription?.status);
   return <div className="subscription-page">
-    <section className="subscription-hero"><div className="subscription-hero-copy"><span className="eyebrow">MCTABA BILLING</span><h2>Your library. Your plan.</h2><p>Review weekly, monthly and yearly billing cycles for {library.name}. Subscription activation and payment verification must be handled securely by Mctaba.</p></div>
-      <div className="subscription-status-card"><div className="subscription-status-top"><CreditCard size={18}/><span>Current subscription</span></div><strong>{subscription?.planName || ((subscription?.requestedBillingCycle || subscription?.billingCycle) ? (subscription.requestedBillingCycle || subscription.billingCycle).charAt(0).toUpperCase() + (subscription.requestedBillingCycle || subscription.billingCycle).slice(1) + ' billing' : 'No active plan')}</strong><Badge tone={status === 'active' ? 'success' : status === 'expired' || status === 'past_due' ? 'danger' : 'warning'}>{status.replaceAll('_', ' ')}</Badge><div className="subscription-status-meta"><span>Renewal / expiry</span><strong>{expiryLabel}</strong></div></div>
+    <section className="subscription-hero"><div className="subscription-hero-copy"><span className="eyebrow">MCTABA BILLING</span><h2>Your library. Your plan.</h2><p>Subscription management for {library.name} will be connected after the core Laravel API migration is validated.</p></div>
+      <div className="subscription-status-card"><div className="subscription-status-top"><CreditCard size={18}/><span>Current subscription</span></div><strong>Billing setup pending</strong><Badge tone="warning">Not connected</Badge><div className="subscription-status-meta"><span>Payment status</span><strong>No payment will be taken</strong></div></div>
     </section>
-    <div className="subscription-notice"><ShieldCheck size={18}/><div><strong>Secure billing by design</strong><span>Choosing a billing cycle does not charge you or activate a subscription. Paid access must only activate after verified payment confirmation.</span></div></div>
-    <SectionHeading eyebrow="BILLING CYCLE" title="Choose how you pay" subtitle="Transparent KES pricing for every library, with a 14-day trial for eligible first-time owners." />
-    <div className="subscription-plans">{plans.map((plan) => <article key={plan.id} className={'subscription-plan' + (cycle === plan.id ? ' subscription-plan--selected' : '') + (plan.popular ? ' subscription-plan--popular' : '')}>
-      {plan.popular && <span className="subscription-popular">MOST FLEXIBLE</span>}<div className="subscription-plan-icon"><CalendarDays size={19}/></div><h3>{plan.name}</h3><p>{plan.description}</p><div className="subscription-price">KSh {plan.price.toLocaleString('en-KE')} <small>/ {plan.duration}</small></div>{plan.saving && <span className="subscription-savings">{plan.saving}</span>}
-      <ul><li><Check size={15}/> Library workspace access</li><li><Check size={15}/> Inventory and circulation tools</li><li><Check size={15}/> Renewal and expiry tracking</li></ul>
-      <button className={'button ' + (cycle === plan.id ? 'button--primary' : 'button--secondary') + ' subscription-select'} onClick={() => chooseCycle(plan.id)}>{trialAvailable ? 'Start 14-day free trial' : cycle === plan.id ? 'Selected for review' : 'Choose ' + plan.name.toLowerCase()}</button>
-    </article>)}</div>
-    <div className="subscription-notice"><CreditCard size={18}/><div><strong>Payment and renewal</strong><span>Secure IntaSend checkout uses the price shown on your selected plan. Your subscription activates only after the payment provider verifies a completed payment.</span></div><button className="button button--secondary" onClick={startCheckout}>Continue to secure checkout</button></div>
-    <section className="panel subscription-history"><div className="panel-heading"><div><h3>Subscription record & payment history</h3><p>Subscription status for {library.name}; verified payment records will appear after a payment provider is connected.</p></div><Badge tone={loaded && subscription ? 'success' : 'neutral'}>{loaded && subscription ? 'Record found' : 'Awaiting setup'}</Badge></div>
-      {!loaded ? <div className="empty-state"><Clock3 size={25}/><strong>Loading billing record</strong><span>Checking the secure subscription record.</span></div> : subscription ? <div className="subscription-record"><div><span>Plan</span><strong>{subscription.planName || subscription.planId || 'Library plan'}</strong></div><div><span>Billing cycle</span><strong>{subscription.requestedBillingCycle || subscription.billingCycle || 'Not recorded'}</strong></div><div><span>Status</span><strong>{status.replaceAll('_', ' ')}</strong></div><div><span>Renewal / expiry</span><strong>{expiryLabel}</strong></div></div> : <div className="empty-state"><CreditCard size={27}/><strong>No billing record yet</strong><span>The secure billing backend must create this record before subscription payments can be processed.</span></div>}
-      <div className="subscription-payment-list"><h4>Payment attempts</h4>{payments.length ? payments.map((payment) => <div className="subscription-record" key={payment.id}><div><span>Reference</span><strong>{payment.apiRef}</strong></div><div><span>Amount</span><strong>{payment.currency} {Number(payment.amount).toFixed(2)}</strong></div><div><span>Cycle</span><strong>{payment.billingCycle}</strong></div><div><span>Status</span><strong>{payment.status === 'pending' && payment.providerState ? payment.providerState : payment.status}</strong></div></div>) : <p>No payment attempts recorded for this library yet.</p>}</div>
-    </section>
+    <div className="subscription-notice"><ShieldCheck size={18}/><div><strong>Secure billing by design</strong><span>Billing is temporarily disabled during the backend migration. No subscription or payment will be created from this screen.</span></div></div>
+    <SectionHeading eyebrow="BILLING CYCLE" title="Plans are being migrated" subtitle="Pricing and verified payment activation will return after the billing API and provider webhooks are tested." />
+    <div className="empty-state"><CreditCard size={28}/><strong>Billing is temporarily unavailable</strong><span>Your library workspace and inventory are separate from this migration step. No billing records have been changed.</span><button className="button button--secondary" onClick={() => notify('Billing will be re-enabled after payment verification tests pass.')}>Why is this disabled?</button></div>
   </div>;
 }
 
@@ -558,20 +549,30 @@ function App() {
   const [library, setLibrary] = useState(null);
 
   useEffect(() => {
-    if (!auth) {
-      setAuthReady(true);
-      return undefined;
+    let cancelled = false;
+    async function restoreSession() {
+      if (!getAuthToken()) {
+        setAuthReady(true);
+        return;
+      }
+      try {
+        const result = await apiRequest('/api/auth/me');
+        if (!cancelled) setUser(normalizeUser(result.user));
+      } catch {
+        setAuthToken(null);
+      } finally {
+        if (!cancelled) setAuthReady(true);
+      }
     }
-    return onAuthStateChanged(auth, (nextUser) => {
-      setUser(nextUser);
-      setLibrary(null);
-      setAuthReady(true);
-    });
+    restoreSession();
+    return () => { cancelled = true; };
   }, []);
 
-  const handleLibraryReady = useCallback((nextLibrary) => {
-    setLibrary(nextLibrary);
+  const handleAuthReady = useCallback((nextUser) => {
+    setUser(nextUser);
+    setLibrary(null);
   }, []);
+  const handleLibraryReady = useCallback((nextLibrary) => setLibrary(nextLibrary), []);
   const switchLibrary = useCallback(() => setLibrary(null), []);
 
   if (!authReady) {
@@ -579,7 +580,7 @@ function App() {
   }
 
   if (!user || !library) {
-    return <AuthPortal user={user} onLibraryReady={handleLibraryReady} />;
+    return <AuthPortal user={user} onAuthReady={handleAuthReady} onLibraryReady={handleLibraryReady} />;
   }
 
   return <Dashboard user={user} library={library} onSwitchLibrary={switchLibrary} />;
