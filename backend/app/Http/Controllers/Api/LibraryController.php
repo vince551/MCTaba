@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Library;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,6 +29,13 @@ class LibraryController extends Controller
         $library = DB::transaction(function () use ($request, $data): Library {
             $library = Library::create([...$data, 'created_by' => $request->user()->id]);
             $library->members()->attach($request->user()->id, ['role' => 'owner', 'status' => 'active']);
+            AuditLog::create([
+                'library_id' => $library->id,
+                'user_id' => $request->user()->id,
+                'event' => 'library.created',
+                'metadata' => ['type' => $library->type],
+                'ip_address' => $request->ip(),
+            ]);
             return $library;
         });
 
