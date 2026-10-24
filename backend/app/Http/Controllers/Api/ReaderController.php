@@ -36,7 +36,7 @@ class ReaderController extends Controller
             'name' => ['required', 'string', 'max:180'],
             'email' => ['nullable', 'email', 'max:254'],
             'member_number' => ['nullable', 'string', 'max:80', Rule::unique('readers')->where('library_id', $library->id)],
-            'type' => ['required', 'in:student,staff,community,teacher,other'],
+            'type' => ['required', 'in:student,staff,community,teacher,researcher,other'],
         ]);
         $data['member_number'] = $data['member_number'] ?? strtoupper('MBR-'.Str::random(10));
         $data['status'] = 'active';
