@@ -27,7 +27,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
     Route::post('/libraries', [LibraryController::class, 'store']);
     Route::get('/libraries/{library}', [LibraryController::class, 'show']);
 
-    Route::prefix('/libraries/{library}')->group(function (): void {
+    Route::prefix('libraries/{library}')->group(function (): void {
         Route::get('/books', [BookController::class, 'index']);
         Route::post('/books', [BookController::class, 'store']);
         Route::get('/books/{book}', [BookController::class, 'show']);
