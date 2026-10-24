@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\BookCopy;
 use App\Models\Library;
 use App\Models\Loan;
@@ -41,14 +42,22 @@ class CirculationController extends Controller
             $reader = $library->readers()->whereKey($data['reader_id'])->where('status', 'active')->firstOrFail();
             abort_unless($copy->status === 'available', 409, 'This copy is not available.');
             $copy->update(['status' => 'borrowed']);
-            return $library->loans()->create([
+            $loan = $library->loans()->create([
                 'copy_id' => $copy->id,
                 'reader_id' => $reader->id,
                 'checked_out_by' => $request->user()->id,
                 'checked_out_at' => now(),
                 'due_at' => Carbon::parse($data['due_at']),
                 'status' => 'active',
-            ])->load(['reader', 'copy.book']);
+            ]);
+            AuditLog::create([
+                'library_id' => $library->id,
+                'user_id' => $request->user()->id,
+                'event' => 'loan.checked_out',
+                'metadata' => ['loan_id' => $loan->id, 'copy_id' => $copy->id, 'reader_id' => $reader->id],
+                'ip_address' => $request->ip(),
+            ]);
+            return $loan->load(['reader', 'copy.book']);
         });
 
         return response()->json(['data' => $loan], 201);
@@ -59,12 +68,19 @@ class CirculationController extends Controller
         $this->ensureStaff($request, $library);
         abort_unless($loan->library_id === $library->id, 404);
 
-        $loan = DB::transaction(function () use ($loan): Loan {
+        $loan = DB::transaction(function () use ($request, $library, $loan): Loan {
             $lockedLoan = Loan::whereKey($loan->id)->lockForUpdate()->firstOrFail();
             abort_unless($lockedLoan->status === 'active', 409, 'This loan has already been returned.');
             $copy = BookCopy::whereKey($lockedLoan->copy_id)->lockForUpdate()->firstOrFail();
             $lockedLoan->update(['returned_at' => now(), 'status' => 'returned']);
             $copy->update(['status' => 'available']);
+            AuditLog::create([
+                'library_id' => $library->id,
+                'user_id' => $request->user()->id,
+                'event' => 'loan.returned',
+                'metadata' => ['loan_id' => $lockedLoan->id, 'copy_id' => $copy->id],
+                'ip_address' => $request->ip(),
+            ]);
             return $lockedLoan->load(['reader', 'copy.book']);
         });
 
