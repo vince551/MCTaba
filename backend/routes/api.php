@@ -1,11 +1,11 @@
 <?php
 
-use App\\Http\\Controllers\\Api\\AuthController;
-use App\\Http\\Controllers\\Api\\BookController;
-use App\\Http\\Controllers\\Api\\CirculationController;
-use App\\Http\\Controllers\\Api\\LibraryController;
-use App\\Http\\Controllers\\Api\\ReaderController;
-use Illuminate\\Support\\Facades\\Route;
+use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BookController;
+use App\Http\Controllers\Api\CirculationController;
+use App\Http\Controllers\Api\LibraryController;
+use App\Http\Controllers\Api\ReaderController;
+use Illuminate\Support\Facades\Route;
 
 Route::get('/health', fn () => response()->json([
     'status' => 'ok',
