@@ -345,12 +345,25 @@ function Circulation({ notify, library, user }) {
     }
     setSaving(true);
     try {
-      await apiRequest(`/api/libraries/${library.id}/loans/checkout`, {
+      const result = await apiRequest(`/api/libraries/${library.id}/loans/checkout`, {
         method: 'POST',
         body: { copy_id: Number(selectedCopy), reader_id: Number(selectedReader), due_at: new Date(dueAt).toISOString() },
       });
+      const loan = result.data;
+      setLoans((current) => [{
+        ...loan,
+        id: String(loan.id),
+        bookId: String(loan.copy?.book?.id || ''),
+        readerId: String(loan.reader_id),
+        dueAt: loan.due_at ? { toDate: () => new Date(loan.due_at) } : null,
+        reader: loan.reader,
+        book: loan.copy?.book,
+      }, ...current]);
+      setCopies((current) => current.map((copy) => String(copy.id) === String(selectedCopy) ? { ...copy, status: 'borrowed' } : copy));
+      setShowCheckout(false);
+      setSelectedCopy('');
+      setSelectedReader('');
       notify('Book checked out successfully.');
-      window.location.reload();
       setShowCheckout(false);
       setSelectedCopy('');
       setSelectedReader('');
@@ -366,8 +379,14 @@ function Circulation({ notify, library, user }) {
     setSaving(true);
     try {
       await apiRequest(`/api/libraries/${library.id}/loans/${loanId}/return`, { method: 'POST' });
+      const returnedLoan = loans.find((loan) => String(loan.id) === String(loanId));
+      setLoans((current) => current.map((loan) => String(loan.id) === String(loanId)
+        ? { ...loan, status: 'returned', returned_at: new Date().toISOString() }
+        : loan));
+      if (returnedLoan?.copy_id) {
+        setCopies((current) => current.map((copy) => String(copy.id) === String(returnedLoan.copy_id) ? { ...copy, status: 'available' } : copy));
+      }
       notify('Book returned and its physical copy released.');
-      window.location.reload();
     } catch (error) {
       notify(error.message || 'Could not process this return.');
     } finally {
