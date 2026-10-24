@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AuditLog;
 use App\Models\Book;
 use App\Models\Library;
 use Illuminate\Http\JsonResponse;
@@ -61,6 +62,13 @@ class BookController extends Controller
                     'status' => 'available',
                 ]);
             }
+            AuditLog::create([
+                'library_id' => $library->id,
+                'user_id' => auth()->id(),
+                'event' => 'book.created',
+                'metadata' => ['book_id' => $book->id, 'copies_created' => $count],
+                'ip_address' => request()->ip(),
+            ]);
             return $book->loadCount('copies');
         });
 
@@ -91,9 +99,18 @@ class BookController extends Controller
 
     public function destroy(Request $request, Library $library, Book $book): JsonResponse
     {
-        $this->ensureCanManage($request, $library);
+        $membership = $library->members()->whereKey($request->user()->id)->first();
+        abort_unless($membership && $membership->pivot->status === 'active', 403, 'No access to this library.');
+        abort_unless(in_array($membership->pivot->role, ['owner', 'admin'], true), 403, 'Only owners and admins can delete titles.');
         abort_unless($book->library_id === $library->id, 404);
         abort_if($book->copies()->where('status', 'borrowed')->exists(), 409, 'Return borrowed copies before deleting this title.');
+        AuditLog::create([
+            'library_id' => $library->id,
+            'user_id' => $request->user()->id,
+            'event' => 'book.deleted',
+            'metadata' => ['book_id' => $book->id],
+            'ip_address' => $request->ip(),
+        ]);
         $book->delete();
         return response()->json(['message' => 'Book deleted.']);
     }
