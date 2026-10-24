@@ -6,7 +6,6 @@ use App\\Http\\Controllers\\Controller;
 use App\\Models\\User;
 use Illuminate\\Http\\JsonResponse;
 use Illuminate\\Http\\Request;
-use Illuminate\\Support\\Facades\\Auth;
 use Illuminate\\Support\\Facades\\Hash;
 use Illuminate\\Validation\\ValidationException;
 
@@ -33,12 +32,11 @@ class AuthController extends Controller
             'password' => ['required', 'string'],
         ]);
 
-        if (!Auth::attempt($credentials)) {
+        /** @var User|null $user */
+        $user = User::where('email', $credentials['email'])->first();
+        if (!$user || !\\Illuminate\\Support\\Facades\\Hash::check($credentials['password'], $user->password)) {
             throw ValidationException::withMessages(['email' => ['The supplied credentials are invalid.']]);
         }
-
-        /** @var User $user */
-        $user = $request->user() ?? User::where('email', $credentials['email'])->firstOrFail();
         $user->tokens()->where('name', 'mctaba-web')->delete();
         $token = $user->createToken('mctaba-web')->plainTextToken;
 
