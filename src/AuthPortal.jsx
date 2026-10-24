@@ -113,7 +113,7 @@ export default function AuthPortal({ user, onAuthReady, onLibraryReady }) {
         {message && <div className="auth-note" role="status">{message}</div>}
         <button className="auth-submit" disabled={loading} type="submit">{loading ? 'Creating workspace…' : 'Register library'} <span>→</span></button>
       </form>
-      <button className="auth-text-button" onClick={async () => { await signOut(); onAuthReady(null); }}>Sign out</button>
+      <button className="auth-text-button" onClick={async () => { try { await signOut(); } finally { onAuthReady(null); } }}>Sign out</button>
     </section></div>;
   }
 
