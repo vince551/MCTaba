@@ -31,6 +31,9 @@ jobs:
         run: |
           find backend/app backend/bootstrap backend/config backend/database backend/public backend/routes backend/tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
           php -l backend/artisan
+      - name: Prepare test environment
+        working-directory: backend
+        run: cp .env.example .env
       - name: Run Laravel tests
         working-directory: backend
         run: php artisan test
