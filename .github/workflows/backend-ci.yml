@@ -28,7 +28,8 @@ jobs:
         run: composer install --no-interaction --prefer-dist
       - name: Lint PHP source files
         shell: bash
-        run: find backend/app backend/bootstrap backend/config backend/database backend/public backend/routes backend/tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+        run: |
+          find backend/app backend/bootstrap backend/config backend/database backend/public backend/routes backend/tests -type f -name '*.php' -print0 | xargs -0 -n1 php -l
           php -l backend/artisan
       - name: Run Laravel tests
         working-directory: backend
