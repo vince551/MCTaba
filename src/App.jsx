@@ -8,7 +8,7 @@ import {
   CircleAlert, CheckCircle2, Bookmark, Mail, CreditCard, ScanLine
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { apiRequest, getAuthToken, normalizeBook, normalizeUser, setAuthToken, signOut } from './api.js';
+import { apiRequest, getAuthToken, normalizeBook, normalizeUser, setAuthToken } from './api.js';
 
 const initialBooks = [
   { id: 'BK-001', title: 'Things Fall Apart', author: 'Chinua Achebe', category: 'Literature', isbn: '9780385474542', copies: 12, available: 8, status: 'Available', color: 'sage' },
