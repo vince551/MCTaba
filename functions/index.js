@@ -56,7 +56,6 @@ exports.createLibrary = onCall(async (request) => {
     : '';
   const libraryRef = db.collection('libraries').doc();
   const membershipRef = libraryRef.collection('memberships').doc(uid);
-  const subscriptionRef = db.doc(`subscriptions/${libraryRef.id}`);
   const userRef = db.doc(`users/${uid}`);
   const auditRef = libraryRef.collection('auditLogs').doc();
 
@@ -78,22 +77,6 @@ exports.createLibrary = onCall(async (request) => {
       permissions: ['*'],
       status: 'active',
       joinedAt: FieldValue.serverTimestamp(),
-    });
-    // Start a 14-day trial server-side. The client cannot grant or extend access.
-    transaction.create(subscriptionRef, {
-      libraryId: libraryRef.id,
-      ownerId: uid,
-      planId: 'trial',
-      billingCycle: 'trial',
-      status: 'trialing',
-      amountMinor: 0,
-      currency: 'KES',
-      provider: 'none',
-      trialStartedAt: FieldValue.serverTimestamp(),
-      currentPeriodEnd: Timestamp.fromDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)),
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-      schemaVersion: 1,
     });
     transaction.set(userRef, {
       displayName: typeof request.auth.token.name === 'string'
