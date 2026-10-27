@@ -56,6 +56,7 @@ exports.createLibrary = onCall(async (request) => {
     : '';
   const libraryRef = db.collection('libraries').doc();
   const membershipRef = libraryRef.collection('memberships').doc(uid);
+  const subscriptionRef = db.doc(`subscriptions/${libraryRef.id}`);
   const userRef = db.doc(`users/${uid}`);
   const auditRef = libraryRef.collection('auditLogs').doc();
 
@@ -77,6 +78,22 @@ exports.createLibrary = onCall(async (request) => {
       permissions: ['*'],
       status: 'active',
       joinedAt: FieldValue.serverTimestamp(),
+    });
+    // Start a 14-day trial server-side. The client cannot grant or extend access.
+    transaction.create(subscriptionRef, {
+      libraryId: libraryRef.id,
+      ownerId: uid,
+      planId: 'trial',
+      billingCycle: 'trial',
+      status: 'trialing',
+      amountMinor: 0,
+      currency: 'KES',
+      provider: 'none',
+      trialStartedAt: FieldValue.serverTimestamp(),
+      currentPeriodEnd: Timestamp.fromDate(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      schemaVersion: 1,
     });
     transaction.set(userRef, {
       displayName: typeof request.auth.token.name === 'string'
@@ -302,4 +319,51 @@ exports.returnBook = onCall(async (request) => {
   });
 
   return { loanId, status: 'returned' };
+});
+
+/**
+ * Returns real circulation metrics calculated from this library's Firestore records.
+ * All access is tenant-scoped and role-checked; demo arrays are never used.
+ */
+exports.getLibraryAnalytics = onCall(async (request) => {
+  const uid = requireAuth(request);
+  const libraryId = cleanString(request.data?.libraryId, 'Library ID', 140);
+  await requireLibraryRole(libraryId, uid, ['owner', 'admin', 'librarian']);
+
+  const [booksSnapshot, loansSnapshot, subscriptionSnapshot] = await Promise.all([
+    db.collection(`libraries/${libraryId}/books`).get(),
+    db.collection(`libraries/${libraryId}/loans`).get(),
+    db.doc(`subscriptions/${libraryId}`).get(),
+  ]);
+  const books = booksSnapshot.docs.map((doc) => doc.data());
+  const loans = loansSnapshot.docs.map((doc) => doc.data());
+  const totalTitles = books.length;
+  const totalCopies = books.reduce((sum, book) => sum + Math.max(0, Number(book.copies) || 0), 0);
+  const availableCopies = books.reduce((sum, book) => sum + Math.max(0, Number(book.available) || 0), 0);
+  const borrowedCopies = Math.max(0, totalCopies - availableCopies);
+  const activeLoans = loans.filter((loan) => loan.status === 'active');
+  const overdueLoans = activeLoans.filter((loan) => {
+    const dueAt = loan.dueAt?.toDate ? loan.dueAt.toDate() : new Date(loan.dueAt);
+    return !Number.isNaN(dueAt.getTime()) && dueAt.getTime() < Date.now();
+  }).length;
+  const percentage = (numerator, denominator) => denominator > 0
+    ? Math.round((numerator / denominator) * 10000) / 100
+    : 0;
+
+  return {
+    totalTitles,
+    totalCopies,
+    availableCopies,
+    borrowedCopies,
+    activeLoans: activeLoans.length,
+    overdueLoans,
+    borrowingRatePercent: percentage(borrowedCopies, totalCopies),
+    overdueRatePercent: percentage(overdueLoans, activeLoans.length),
+    subscription: subscriptionSnapshot.exists ? {
+      planId: subscriptionSnapshot.get('planId') || 'unknown',
+      status: subscriptionSnapshot.get('status') || 'unknown',
+      currentPeriodEnd: subscriptionSnapshot.get('currentPeriodEnd')?.toDate?.().toISOString() || null,
+    } : null,
+    calculatedAt: new Date().toISOString(),
+  };
 });
