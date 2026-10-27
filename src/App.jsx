@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { auth, db, isFirebaseConfigured } from './firebase.js';
+import { fetchLibraryAnalytics } from './lib/analytics.js';
 import { apiRequest } from './api.js';
 
 const initialBooks = [
@@ -216,7 +217,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
         {activePage === 'Inventory' && <Inventory books={filteredBooks} query={query} setQuery={setQuery} onAdd={() => setShowAddBook(true)} onExport={exportBooks} notify={notify}/>}
         {activePage === 'Circulation' && <Circulation notify={notify} library={library} user={user} />}
         {activePage === 'Members' && <Members notify={notify} library={library} user={user} />}
-        {activePage === 'Reports' && <Reports range={range} setRange={setRange} notify={notify}/>}
+        {activePage === 'Reports' && <Reports range={range} setRange={setRange} notify={notify} library={library}/>}
         {activePage === 'Notifications' && <Notifications notify={notify}/>}
         {activePage === 'Settings' && <Settings notify={notify}/>}
         {activePage === 'Subscriptions' && <Subscriptions notify={notify} library={library} />}
@@ -455,8 +456,41 @@ function Members({ notify, library, user }) {
   </>;
 }
 
-function Reports({ range, setRange, notify }) {
-  return <><div className="report-controls"><span className="muted-copy">Your library's performance at a glance.</span><select className="select-compact" value={range} onChange={e => setRange(e.target.value)}><option>This week</option><option>This month</option><option>This year</option></select></div><div className="stats-grid"><article className="stat-card"><div className="stat-top"><span>Books issued</span><div className="stat-icon stat-icon--green"><ArrowLeftRight size={18}/></div></div><div className="stat-value">137</div><div className="stat-bottom"><span className="stat-positive"><ArrowUpRight size={14}/>8.4%</span><span className="stat-detail">vs. previous period</span></div></article><article className="stat-card"><div className="stat-top"><span>Returns completed</span><div className="stat-icon stat-icon--purple"><Check size={18}/></div></div><div className="stat-value">112</div><div className="stat-bottom"><span className="stat-positive"><ArrowUpRight size={14}/>5.1%</span><span className="stat-detail">vs. previous period</span></div></article><article className="stat-card"><div className="stat-top"><span>New readers</span><div className="stat-icon stat-icon--orange"><Users size={18}/></div></div><div className="stat-value">28</div><div className="stat-bottom"><span className="stat-positive"><ArrowUpRight size={14}/>11.2%</span><span className="stat-detail">vs. previous period</span></div></article><article className="stat-card"><div className="stat-top"><span>Return rate</span><div className="stat-icon stat-icon--blue"><Bookmark size={18}/></div></div><div className="stat-value">94.6%</div><div className="stat-bottom"><span className="stat-detail">Sample performance</span></div></article></div><section className="panel activity-panel report-chart-panel"><div className="panel-heading"><div><h3>Circulation overview</h3><p>Daily book movement · {range.toLowerCase()}</p></div><button className="button button--secondary" onClick={() => notify('Reports export will use verified Firestore data once connected.')}><Download size={15}/> Export report</button></div><div className="chart-wrap chart-wrap--large"><ResponsiveContainer width="100%" height="100%"><BarChart data={weeklyActivity} barGap={7} margin={{ top: 15, right: 12, left: -18, bottom: 0 }}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf0ed"/><XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#8b948e', fontSize: 12 }} dy={10}/><YAxis axisLine={false} tickLine={false} tick={{ fill: '#8b948e', fontSize: 11 }}/><Tooltip contentStyle={{ border: '1px solid #e6eae6', borderRadius: 12, fontSize: 12 }}/><Bar dataKey="issued" name="Issued" fill="#245c4b" radius={[5,5,0,0]} maxBarSize={24}/><Bar dataKey="returned" name="Returned" fill="#b8d7c9" radius={[5,5,0,0]} maxBarSize={24}/></BarChart></ResponsiveContainer></div></section></>;
+function Reports({ range, setRange, notify, library }) {
+  const [analytics, setAnalytics] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError('');
+      try {
+        const data = await fetchLibraryAnalytics(library.id);
+        if (!cancelled) setAnalytics(data);
+      } catch (err) {
+        if (!cancelled) setError(err?.message || 'Could not load live library analytics.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    if (library?.id) load();
+    return () => { cancelled = true; };
+  }, [library?.id]);
+
+  const cards = [
+    { label: 'Catalogue titles', value: analytics?.totalTitles ?? 0 },
+    { label: 'Total physical copies', value: analytics?.totalCopies ?? 0 },
+    { label: 'Copies currently borrowed', value: analytics?.borrowedCopies ?? 0 },
+    { label: 'Active loans overdue', value: analytics?.overdueLoans ?? 0 },
+  ];
+  return <>
+    <div className="report-controls"><span className="muted-copy">Calculated from this library's Firestore records.</span><select className="select-compact" value={range} onChange={e => setRange(e.target.value)}><option>This week</option><option>This month</option><option>This year</option></select></div>
+    {error && <div className="demo-banner"><div><strong>Live analytics unavailable</strong><span>{error}. Confirm Firebase Functions are deployed and this user has an active library role.</span></div><button onClick={() => notify('Check the analytics error above and your Firebase Functions deployment.')}>Help</button></div>}
+    <div className="stats-grid">{cards.map(card => <article className="stat-card" key={card.label}><div className="stat-top"><span>{card.label}</span><div className="stat-icon stat-icon--blue"><FileBarChart size={18}/></div></div><div className="stat-value">{loading ? '—' : card.value.toLocaleString()}</div><div className="stat-bottom"><span className="stat-detail">{loading ? 'Loading live data…' : 'Live Firestore calculation'}</span></div></article>)}</div>
+    <div className="stats-grid"><article className="stat-card"><div className="stat-top"><span>Borrowing rate</span><div className="stat-icon stat-icon--green"><ArrowUpRight size={18}/></div></div><div className="stat-value">{loading ? '—' : `${analytics?.borrowingRatePercent ?? 0}%`}</div><div className="stat-bottom"><span className="stat-detail">Borrowed copies / total copies</span></div></article><article className="stat-card"><div className="stat-top"><span>Overdue rate</span><div className="stat-icon stat-icon--red"><Clock3 size={18}/></div></div><div className="stat-value">{loading ? '—' : `${analytics?.overdueRatePercent ?? 0}%`}</div><div className="stat-bottom"><span className="stat-detail">Overdue active loans / active loans</span></div></article></div>
+    {analytics?.subscription && <section className="panel simple-panel"><h3>Subscription status</h3><p>Plan: <strong>{analytics.subscription.planId}</strong> · Status: <strong>{analytics.subscription.status}</strong></p><p>Current period ends: {analytics.subscription.currentPeriodEnd ? new Date(analytics.subscription.currentPeriodEnd).toLocaleString() : 'Not available'}</p></section>}
+  </>;
 }
 
 function Notifications({ notify }) {
