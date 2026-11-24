@@ -46,7 +46,7 @@ Create a separate Render Web Service and set its **Root Directory** to `backend/
 - Runtime: Node
 - Build command: `npm install`
 - Start command: `npm start`
-- Health check path: `/health/live`
+- Health check path: `/health/ready` (checks PostgreSQL connectivity)
 
 Set these environment variables in Render:
 
