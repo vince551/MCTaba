@@ -1,11 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#194638"/>
-  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="24">
-    <path d="M112 364h288"/>
-    <path d="M132 364V240h52v124"/>
-    <path d="M230 364V240h52v124"/>
-    <path d="M328 364V240h52v124"/>
-    <path d="M104 214h304L256 128 104 214Z" fill="#65a787" stroke="#fff"/>
-    <path d="M112 396h288"/>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#087b65"/><stop offset=".52" stop-color="#005b49"/><stop offset="1" stop-color="#003c32"/></linearGradient>
+    <linearGradient id="page" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#e9efed"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feGaussianBlur stdDeviation="9"/></filter>
+  </defs>
+  <rect width="512" height="512" fill="#f4f4f4"/>
+  <rect x="23" y="32" width="466" height="466" rx="112" fill="#001f1a" opacity=".22" filter="url(#shadow)"/>
+  <rect x="23" y="24" width="466" height="466" rx="112" fill="url(#tile)"/>
+  <path d="M117 144 Q145 154 157 169 V407 H117Z" fill="#fff"/>
+  <path d="M395 144 Q367 154 355 169 V407 H395Z" fill="#fff"/>
+  <path d="M190 177 Q231 201 255 262 H231 Q212 229 190 219Z" fill="#fff"/>
+  <path d="M322 177 Q281 201 257 262 H281 Q300 229 322 219Z" fill="#fff"/>
+  <path d="M178 194 L178 334 Q222 350 256 385 L256 406 Q214 369 172 354 L172 190Z" fill="#fff"/>
+  <path d="M334 194 L334 334 Q290 350 256 385 L256 406 Q298 369 340 354 L340 190Z" fill="#fff"/>
+  <path d="M166 211 L166 346 Q216 363 256 400 L256 410 Q211 372 160 361 L160 207Z" fill="#eaf0ee"/>
+  <path d="M346 211 L346 346 Q296 363 256 400 L256 410 Q301 372 352 361 L352 207Z" fill="#eaf0ee"/>
+  <path d="M190 176 Q232 201 255 260 H224 Q208 231 190 220Z" fill="url(#page)"/>
+  <path d="M322 176 Q280 201 257 260 H288 Q304 231 322 220Z" fill="url(#page)"/>
+  <path d="M190 176 Q231 201 255 260" fill="none" stroke="#fff" stroke-width="2"/>
+  <path d="M322 176 Q281 201 257 260" fill="none" stroke="#fff" stroke-width="2"/>
+  <path d="M256 320 V385" stroke="#005b49" stroke-width="3"/>
+  <rect x="224" y="260" width="64" height="64" fill="#005b49"/>
+  <g fill="none" stroke="#fff" stroke-width="4">
+    <rect x="234" y="270" width="17" height="17"/><rect x="239" y="275" width="7" height="7"/>
+    <rect x="261" y="270" width="17" height="17"/><rect x="266" y="275" width="7" height="7"/>
+    <rect x="234" y="297" width="17" height="17"/><rect x="239" y="302" width="7" height="7"/>
+  </g>
+  <g fill="#fff">
+    <path d="M255 270h4v4h-4zm0 8h4v4h-4zm8 8h4v4h-4zm8 0h4v4h-4zm-16 8h4v4h-4zm8 0h4v4h-4zm8 8h4v4h-4zm-16 8h4v4h-4zm8-4h4v4h-4zm8 0h4v4h-4z"/>
   </g>
 </svg>
