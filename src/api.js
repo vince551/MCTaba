@@ -1,6 +1,6 @@
 import { supabase } from './supabase.js';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://mctaba-test-api.onrender.com').replace(/\\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://mctaba-test-api.onrender.com').replace(/\/$/, '');
 
 export async function apiRequest(path, { method = 'GET', body, headers = {} } = {}) {
   const { data: { session } = {} } = supabase ? await supabase.auth.getSession() : {};
@@ -42,6 +42,7 @@ export async function signUp(name, email, password) {
   });
   if (error) throw error;
   if (!data.user) throw new Error('Account creation did not return a user. Please try again.');
+  if (!data.session) throw new Error('Your account was created. Check your email to confirm it, then return here to sign in.');
   return data.user;
 }
 
