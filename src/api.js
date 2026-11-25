@@ -1,23 +1,15 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '');
-const TOKEN_KEY = 'mctaba_api_token';
+import { supabase } from './supabase.js';
 
-export function getAuthToken() {
-  return sessionStorage.getItem(TOKEN_KEY);
-}
-
-export function setAuthToken(token) {
-  if (token) sessionStorage.setItem(TOKEN_KEY, token);
-  else sessionStorage.removeItem(TOKEN_KEY);
-}
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://mctaba-test-api.onrender.com').replace(/\\/$/, '');
 
 export async function apiRequest(path, { method = 'GET', body, headers = {} } = {}) {
-  const token = getAuthToken();
+  const { data: { session } = {} } = supabase ? await supabase.auth.getSession() : {};
   const response = await fetch(`${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`, {
     method,
     headers: {
       Accept: 'application/json',
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       ...headers,
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -25,10 +17,9 @@ export async function apiRequest(path, { method = 'GET', body, headers = {} } = 
 
   let result = {};
   try { result = await response.json(); } catch { /* response has no JSON body */ }
-
   if (!response.ok) {
-    const validationMessage = result.errors && Object.values(result.errors).flat()[0];
-    const error = new Error(validationMessage || result.message || result.error || 'The request could not be completed.');
+    const detail = result.details?.[0]?.message;
+    const error = new Error(detail || result.message || result.error || 'The request could not be completed.');
     error.status = response.status;
     throw error;
   }
@@ -36,31 +27,39 @@ export async function apiRequest(path, { method = 'GET', body, headers = {} } = 
 }
 
 export async function signIn(email, password) {
-  const result = await apiRequest('/api/auth/login', { method: 'POST', body: { email, password } });
-  setAuthToken(result.token);
-  return result.user;
+  if (!supabase) throw new Error('Mctaba authentication is not configured. Add the Supabase URL and publishable key to Vercel.');
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data.user;
 }
 
 export async function signUp(name, email, password) {
-  const result = await apiRequest('/api/auth/register', {
-    method: 'POST',
-    body: { name, email, password, password_confirmation: password },
+  if (!supabase) throw new Error('Mctaba authentication is not configured. Add the Supabase URL and publishable key to Vercel.');
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: name } },
   });
-  setAuthToken(result.token);
-  return result.user;
+  if (error) throw error;
+  if (!data.user) throw new Error('Account creation did not return a user. Please try again.');
+  return data.user;
 }
 
 export async function signOut() {
-  try { if (getAuthToken()) await apiRequest('/api/auth/logout', { method: 'POST' }); }
-  finally { setAuthToken(null); }
+  if (!supabase) return;
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
 }
 
 export function normalizeUser(user) {
   if (!user) return null;
+  const metadata = user.user_metadata || {};
   return {
     ...user,
+    id: user.id,
     uid: String(user.id),
-    displayName: user.name || user.display_name || user.email,
+    email: user.email,
+    displayName: metadata.full_name || metadata.name || user.email,
   };
 }
 

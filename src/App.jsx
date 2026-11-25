@@ -8,7 +8,8 @@ import {
   CircleAlert, CheckCircle2, Bookmark, Mail, CreditCard, ScanLine
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { apiRequest, getAuthToken, normalizeBook, normalizeUser, setAuthToken } from './api.js';
+import { apiRequest, normalizeBook, normalizeUser } from './api.js';
+import { supabase } from './supabase.js';
 
 const initialBooks = [
   { id: 'BK-001', title: 'Things Fall Apart', author: 'Chinua Achebe', category: 'Literature', isbn: '9780385474542', copies: 12, available: 8, status: 'Available', color: 'sage' },
@@ -551,15 +552,14 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     async function restoreSession() {
-      if (!getAuthToken()) {
-        setAuthReady(true);
-        return;
-      }
       try {
-        const result = await apiRequest('/api/auth/me');
-        if (!cancelled) setUser(normalizeUser(result.user));
-      } catch {
-        setAuthToken(null);
+        const { data: { session } = {} } = supabase ? await supabase.auth.getSession() : {};
+        if (session?.user) {
+          const result = await apiRequest('/auth/me');
+          if (!cancelled) setUser(normalizeUser(result.user));
+        }
+      } catch (error) {
+        console.error('Could not restore Mctaba session:', error.message);
       } finally {
         if (!cancelled) setAuthReady(true);
       }

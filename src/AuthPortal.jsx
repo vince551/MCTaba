@@ -31,10 +31,11 @@ export default function AuthPortal({ user, onAuthReady, onLibraryReady }) {
       if (!user) return;
       setLoading(true);
       try {
-        const result = await apiRequest('/api/libraries');
-        const available = (result.data || []).map((library) => ({
+        const result = await apiRequest('/libraries');
+        const available = (result.libraries || []).map((library) => ({
           ...library,
           id: String(library.id),
+          type: library.library_type,
           location: library.location || '',
         }));
         if (!cancelled) {
@@ -78,11 +79,11 @@ export default function AuthPortal({ user, onAuthReady, onLibraryReady }) {
     setMessage('');
     setLoading(true);
     try {
-      const result = await apiRequest('/api/libraries', {
+      const result = await apiRequest('/libraries', {
         method: 'POST',
-        body: { name: libraryName.trim(), type: libraryType, location: location.trim() || null },
+        body: { name: libraryName.trim(), library_type: libraryType, location: location.trim() || null },
       });
-      const library = { ...result.data, id: String(result.data.id), location: result.data.location || '' };
+      const library = { ...result.library, id: String(result.library.id), type: result.library.library_type, location: result.library.location || '' };
       onLibraryReady(library);
     } catch (err) {
       setError(err.status === 401
@@ -133,6 +134,6 @@ export default function AuthPortal({ user, onAuthReady, onLibraryReady }) {
     <div className="auth-switch-row">
       {mode === 'signin' ? <><button className="auth-text-button" onClick={() => { setMode('reset'); setError(''); setMessage(''); }}>Forgot password?</button><button className="auth-text-button" onClick={() => { setMode('signup'); setError(''); setMessage(''); }}>Create account</button></> : <button className="auth-text-button" onClick={() => { setMode('signin'); setError(''); setMessage(''); }}>Back to sign in</button>}
     </div>
-    <div className="auth-note">Mctaba now uses its Laravel API for account access and library workspaces.</div>
+    <div className="auth-note">Secure sign-in is powered by Supabase. Your library workspace is managed by Mctaba.</div>
   </section></div>;
 }
