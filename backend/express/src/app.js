@@ -3,6 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { env } from './config/env.js';
 import { healthRouter } from './routes/health.js';
+import { authRouter } from './routes/auth.js';
+import { librariesRouter } from './routes/libraries.js';
 
 export const app = express();
 
@@ -23,6 +25,8 @@ app.get('/', (_request, response) => {
 });
 
 app.use('/health', healthRouter);
+app.use('/auth', authRouter);
+app.use('/libraries', librariesRouter);
 
 app.use((_request, response) => {
   response.status(404).json({ error: 'Route not found.' });
