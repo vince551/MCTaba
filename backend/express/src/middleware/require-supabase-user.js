@@ -3,7 +3,7 @@ import { pool } from '../database/pool.js';
 
 export async function requireSupabaseUser(request, response, next) {
   const authorization = request.get('authorization') || '';
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  const match = authorization.match(/^Bearer\\s+(.+)$/i);
   if (!match) {
     return response.status(401).json({ error: 'A valid Supabase access token is required.' });
   }
@@ -40,7 +40,7 @@ export async function requireSupabaseUser(request, response, next) {
     const result = await pool.query(
       `INSERT INTO users (supabase_user_id, email, full_name, password_hash, email_verified_at)
        VALUES ($1, $2, $3, NULL, $4)
-       ON CONFLICT (supabase_user_id) DO UPDATE
+       ON CONFLICT (supabase_user_id) WHERE supabase_user_id IS NOT NULL DO UPDATE
          SET email = EXCLUDED.email,
              full_name = EXCLUDED.full_name,
              email_verified_at = COALESCE(EXCLUDED.email_verified_at, users.email_verified_at),
