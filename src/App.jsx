@@ -576,7 +576,7 @@ function App() {
   const switchLibrary = useCallback(() => setLibrary(null), []);
 
   if (!authReady) {
-    return <div className="auth-shell"><section className="auth-card"><div className="auth-brand"><span className="auth-logo">M</span><span>mctaba<span className="auth-period">.</span></span></div><p className="auth-description">Loading your secure library workspace…</p></section></div>;
+    return <div className="auth-shell"><section className="auth-card"><div className="auth-brand"><img className="auth-logo-image" src="/icons/mctaba-logo.jpg" alt="Mctaba logo" /><span>mctaba<span className="auth-period">.</span></span></div><p className="auth-description">Loading your secure library workspace…</p></section></div>;
   }
 
   if (!user || !library) {
