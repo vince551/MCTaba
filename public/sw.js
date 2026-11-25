@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mctaba-shell-v1';
+const CACHE_NAME = 'mctaba-shell-v2';
 const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/mctaba-icon.svg'];
 
 self.addEventListener('install', (event) => {
