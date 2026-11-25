@@ -95,7 +95,7 @@ export default function AuthPortal({ user, onAuthReady, onLibraryReady }) {
 
   if (user) {
     return <div className="auth-shell"><section className="auth-card">
-      <div className="auth-brand"><span className="auth-logo">M</span><span>mctaba<span className="auth-period">.</span></span></div>
+      <div className="auth-brand"><img className="auth-logo-image" src="/icons/mctaba-logo.jpg" alt="Mctaba logo" /><span>mctaba<span className="auth-period">.</span></span></div>
       {libraries.length > 0 ? <>
         <p className="auth-eyebrow">YOUR WORKSPACES</p><h1>Welcome back{user.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}.</h1>
         <p className="auth-description">Choose a library to open, or register another library under your account.</p>
@@ -118,7 +118,7 @@ export default function AuthPortal({ user, onAuthReady, onLibraryReady }) {
   }
 
   return <div className="auth-shell"><section className="auth-card">
-    <div className="auth-brand"><span className="auth-logo">M</span><span>mctaba<span className="auth-period">.</span></span></div>
+    <div className="auth-brand"><img className="auth-logo-image" src="/icons/mctaba-logo.jpg" alt="Mctaba logo" /><span>mctaba<span className="auth-period">.</span></span></div>
     <p className="auth-eyebrow">{mode === 'signup' ? 'CREATE YOUR ACCOUNT' : mode === 'reset' ? 'ACCOUNT RECOVERY' : 'LIBRARY MANAGEMENT, SIMPLIFIED'}</p>
     <h1>{mode === 'signup' ? 'Your library starts here.' : mode === 'reset' ? 'Reset your password.' : 'Welcome back.'}</h1>
     <p className="auth-description">{mode === 'signup' ? 'Create your Mctaba account and register a library workspace.' : mode === 'reset' ? 'Password recovery is not enabled yet.' : 'Sign in to manage your library workspace.'}</p>
