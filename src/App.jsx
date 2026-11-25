@@ -3,7 +3,7 @@ import AuthPortal from './AuthPortal.jsx';
 import {
   ArrowDownRight, ArrowRight, ArrowUpRight, Bell, BookMarked, BookOpen,
   CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Command, Download,
-  Ellipsis, FileBarChart, Filter, LayoutDashboard, LibraryBig, Menu, Plus,
+  Ellipsis, FileBarChart, Filter, LayoutDashboard, Menu, Plus,
   Search, Settings2, ShieldCheck, Sparkles, Users, X, ArrowLeftRight,
   CircleAlert, CheckCircle2, Bookmark, Mail, CreditCard, ScanLine
 } from 'lucide-react';
@@ -156,7 +156,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
     {mobileNavOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
     <aside className={`sidebar ${mobileNavOpen ? 'sidebar--open' : ''}`}>
       <div className="brand-lockup">
-        <div className="brand-mark"><LibraryBig size={23} strokeWidth={2.1} /></div>
+        <img className="brand-mark" src="/icons/mctaba-icon.svg" alt="Mctaba logo" />
         <div className="brand-word">mctaba<span>.</span><small>LIBRARY WORKSPACE</small></div>
         <button className="icon-button sidebar-close" onClick={() => setMobileNavOpen(false)} aria-label="Close menu"><X size={18}/></button>
       </div>
