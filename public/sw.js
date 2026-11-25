@@ -1,5 +1,5 @@
-const CACHE_NAME = 'mctaba-shell-v2';
-const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/mctaba-icon.svg'];
+const CACHE_NAME = 'mctaba-shell-v3';
+const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/mctaba-logo.jpg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
