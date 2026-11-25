@@ -156,7 +156,7 @@ function Dashboard({ user, library, onSwitchLibrary }) {
     {mobileNavOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} />}
     <aside className={`sidebar ${mobileNavOpen ? 'sidebar--open' : ''}`}>
       <div className="brand-lockup">
-        <img className="brand-mark" src="/icons/mctaba-icon.svg" alt="Mctaba logo" />
+        <img className="brand-mark" src="/icons/mctaba-logo.jpg" alt="Mctaba logo" />
         <div className="brand-word">mctaba<span>.</span><small>LIBRARY WORKSPACE</small></div>
         <button className="icon-button sidebar-close" onClick={() => setMobileNavOpen(false)} aria-label="Close menu"><X size={18}/></button>
       </div>
