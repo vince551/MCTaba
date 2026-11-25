@@ -16,15 +16,15 @@
   ],
   "icons": [
     {
-      "src": "/icons/mctaba-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icons/mctaba-logo.jpg",
+      "sizes": "600x600",
+      "type": "image/jpeg",
       "purpose": "any"
     },
     {
-      "src": "/icons/mctaba-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icons/mctaba-logo.jpg",
+      "sizes": "600x600",
+      "type": "image/jpeg",
       "purpose": "maskable"
     }
   ]
