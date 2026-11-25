@@ -1,13 +1,12 @@
 # Mctaba Express API
 
-This is the new Node.js API service for the Express + PostgreSQL implementation. It is intentionally isolated from the existing Laravel scaffold in `backend/` and the current Firebase/Vercel application at the repository root.
-
-**Phase 1 only:** service bootstrap, environment validation, PostgreSQL connection pool, health endpoints, and the initial tenant foundation migration. Authentication and business endpoints are not implemented in this phase.
+The Node.js API is isolated from the existing Laravel scaffold and the current Firebase/Vercel application at the repository root. The target architecture uses Render for the API, Neon for application PostgreSQL, Supabase Auth for identity, and Supabase Storage for private files.
 
 ## Requirements
 
 - Node.js 22 LTS
 - PostgreSQL 15+
+- A Supabase project
 - npm
 
 ## Local setup
@@ -18,7 +17,7 @@ This is the new Node.js API service for the Express + PostgreSQL implementation.
    npm install
    ```
 
-2. Copy `.env.example` to `.env` and set `DATABASE_URL` for a new, empty development database. Do not reuse the existing Firebase data or the Laravel database.
+2. Copy `.env.example` to `.env`. Configure the Neon pooled connection string as `DATABASE_URL`, enable TLS with `DATABASE_SSL=true`, and add the Supabase Project URL and publishable key. Never put a Supabase secret/service-role key in the frontend or commit it to Git.
 
 3. Start the API:
 
@@ -29,48 +28,46 @@ This is the new Node.js API service for the Express + PostgreSQL implementation.
 4. Check:
    - `GET http://localhost:4000/`
    - `GET http://localhost:4000/health/live`
-   - `GET http://localhost:4000/health/ready` (requires a reachable PostgreSQL server)
+   - `GET http://localhost:4000/health/ready`
 
-5. Apply the initial schema only to the new, empty PostgreSQL database:
+5. Apply all pending migrations to the new, empty Neon database:
 
    ```bash
    npm run migrate:up
    ```
 
-The migration creates users, libraries, memberships, and audit logs. It does not import or modify Firebase or Laravel records. Do not run a down migration against a database containing data.
+## Authentication and tenant onboarding
 
-## Render deployment settings
+The API verifies Supabase access tokens against Supabase Auth's `/auth/v1/user` endpoint using the project's publishable key. It does not trust decoded, unverified JWT claims. Verified Supabase identities are synchronized into the Neon `users` table.
 
-Create a separate Render Web Service and set its **Root Directory** to `backend/express`.
+- `GET /auth/me`: returns the signed-in user's Neon profile and library memberships.
+- `GET /libraries`: lists only libraries where the authenticated user has an active membership.
+- `POST /libraries`: creates a library and makes the authenticated user its owner in one database transaction.
 
-- Runtime: Node
-- Build command: `npm install`
-- Start command: `npm start`
-- Health check path: `/health/ready` (checks PostgreSQL connectivity)
+Send the Supabase access token as `Authorization: Bearer <access_token>`. The client must obtain this token from Supabase Auth. Library IDs supplied by clients are never treated as proof of authorization.
 
-Set these environment variables in Render:
+## Render deployment
 
+Keep the existing Render API service and update its environment variables only after the Neon database and Supabase project details have been checked.
+
+Required variables:
 - `NODE_ENV=production`
-- `DATABASE_URL`: the connection string for the new Render PostgreSQL database (use the Render internal connection string when the web service and database are in the same region)
-- `CORS_ORIGINS`: exact Vercel frontend origin(s), comma-separated, with no wildcard
-- `DATABASE_SSL=true` only when required by the selected database connection endpoint; keep certificate verification enabled
-- `PORT` is supplied by Render automatically
+- `DATABASE_URL`: Neon pooled connection string (use the pooled endpoint for the API)
+- `DATABASE_SSL=true`
+- `DATABASE_SSL_REJECT_UNAUTHORIZED=true`
+- `SUPABASE_URL`: Supabase Project URL
+- `SUPABASE_PUBLISHABLE_KEY`: Supabase publishable key
+- `CORS_ORIGINS`: exact Vercel frontend origin(s), comma-separated, no wildcard
 
-Run `npm run migrate:up` as a one-off command after reviewing the target database and before enabling application traffic. Do not place migrations in the server startup command.
+Run `npm run migrate:up` once against the Neon database before sending application traffic to the new API. Do not run migrations automatically on API startup.
 
-## Phase 1 database foundation
+## Storage
 
-- `users`: unique case-insensitive email identity and password-hash storage.
-- `libraries`: independent tenant records.
-- `memberships`: user-to-library roles and membership state, unique per library/user pair.
-- `audit_logs`: tenant-aware audit event storage.
-
-Every future tenant-scoped API must verify an active membership for the requested library on the server. A client-provided library ID is never authorization.
+Supabase Storage will use private buckets. File upload/download endpoints must be added with server-side Neon membership checks and short-lived signed URLs. Do not make library documents public and do not expose a Supabase secret/service-role key to browser code. Storage bucket policies and signed URL routes are a separate implementation step; they are not enabled by this API change.
 
 ## Safety boundaries
 
-- The root React/Vite app and its Vercel deployment are unchanged.
-- Firebase Authentication, Firestore, Firebase rules, and existing data are unchanged.
-- The Laravel scaffold remains in place and is not used by this Express service.
-- No Render service, PostgreSQL instance, production environment variable, or secret is created by this repository change.
-- The migration is not executed by this change. Review the database target before applying it.
+- The existing Vercel frontend, Firebase Authentication, Firestore, Firebase rules, and existing data remain unchanged.
+- The Laravel scaffold remains in place.
+- The temporary Render PostgreSQL database is not migrated, deleted, or modified by this code.
+- No secrets are committed. The new Neon database must be the only application database after the cutover is explicitly approved.

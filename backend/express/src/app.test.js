@@ -50,3 +50,9 @@ test('requests from unlisted browser origins are rejected', async () => {
   assert.equal(response.status, 403);
   assert.deepEqual(await response.json(), { error: 'This origin is not allowed.' });
 });
+
+test('protected library endpoint rejects requests without a bearer token', async () => {
+  const response = await fetch(`${baseUrl}/libraries`);
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: 'A valid Supabase access token is required.' });
+});

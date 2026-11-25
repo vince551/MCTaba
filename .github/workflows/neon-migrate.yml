@@ -1,0 +1,40 @@
+name: Mctaba Neon Database Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_neon:
+        description: Confirm that the secret NEON_DATABASE_URL points to the new Mctaba Neon project
+        required: true
+        type: choice
+        options:
+          - do-not-run
+          - apply-to-neon
+        default: do-not-run
+
+jobs:
+  migrate:
+    if: inputs.confirm_neon == 'apply-to-neon'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/express
+    env:
+      NODE_ENV: production
+      DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+      DATABASE_SSL: 'true'
+      DATABASE_SSL_REJECT_UNAUTHORIZED: 'true'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate the migration target
+        run: |
+          node --input-type=module -e "const value = process.env.DATABASE_URL; if (!value) throw new Error('Add NEON_DATABASE_URL in GitHub Actions secrets first.'); const url = new URL(value); if (!url.hostname.endsWith('.neon.tech')) throw new Error('Refusing to migrate: DATABASE_URL is not a Neon host.'); console.log('Confirmed Neon host:', url.hostname);"
+      - name: Install API dependencies
+        run: npm install
+      - name: Apply pending migrations to Neon
+        run: npm run migrate:up

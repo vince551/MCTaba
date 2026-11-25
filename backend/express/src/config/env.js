@@ -11,12 +11,21 @@ const schema = z.object({
   DATABASE_IDLE_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   DATABASE_CONNECTION_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   CORS_ORIGINS: z.string().default('http://localhost:5173,http://127.0.0.1:5173'),
+  SUPABASE_URL: z.string().url().optional(),
+  SUPABASE_PUBLISHABLE_KEY: z.string().min(1).optional(),
 }).superRefine((value, context) => {
   if (value.NODE_ENV === 'production' && !value.CORS_ORIGINS.trim()) {
     context.addIssue({
       code: 'custom',
       path: ['CORS_ORIGINS'],
       message: 'Set CORS_ORIGINS to the exact Vercel frontend origin in production.',
+    });
+  }
+  if (Boolean(value.SUPABASE_URL) !== Boolean(value.SUPABASE_PUBLISHABLE_KEY)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['SUPABASE_URL'],
+      message: 'SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be configured together.',
     });
   }
 });
