@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiRequest, normalizeUser, setAuthToken, signIn, signOut, signUp } from './api.js';
+import { apiRequest, normalizeUser, signIn, signOut, signUp } from './api.js';
 import './auth.css';
 
 const libraryTypes = [
