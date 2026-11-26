@@ -1,6 +1,6 @@
 import { supabase } from './supabase.js';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://mctaba-test-api.onrender.com').replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://mctaba-test-api.onrender.com').replace(/\\/$/, '');
 
 export async function apiRequest(path, { method = 'GET', body, headers = {} } = {}) {
   const { data: { session } = {} } = supabase ? await supabase.auth.getSession() : {};
@@ -33,6 +33,15 @@ export async function signIn(email, password) {
   return data.user;
 }
 
+export async function signInWithGoogle() {
+  if (!supabase) throw new Error('Mctaba authentication is not configured. Add the Supabase URL and publishable key to Vercel.');
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin },
+  });
+  if (error) throw error;
+}
+
 export async function signUp(name, email, password) {
   if (!supabase) throw new Error('Mctaba authentication is not configured. Add the Supabase URL and publishable key to Vercel.');
   const { data, error } = await supabase.auth.signUp({
@@ -42,7 +51,7 @@ export async function signUp(name, email, password) {
   });
   if (error) throw error;
   if (!data.user) throw new Error('Account creation did not return a user. Please try again.');
-  if (!data.session) throw new Error('Your account was created. Check your email to confirm it, then return here to sign in.');
+  if (!data.session) throw new Error('Your account was created, but sign-in was not completed. Please try signing in.');
   return data.user;
 }
 
