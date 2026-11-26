@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiRequest, normalizeUser, signIn, signOut, signUp } from './api.js';
+import { apiRequest, normalizeUser, signIn, signInWithGoogle, signOut, signUp } from './api.js';
 import './auth.css';
 
 const libraryTypes = [
@@ -73,6 +73,18 @@ export default function AuthPortal({ user, onAuthReady, onLibraryReady }) {
     }
   };
 
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setMessage('');
+    setLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setError(err.message || 'Google sign-in could not be started.');
+      setLoading(false);
+    }
+  };
+
   const createLibrary = async (event) => {
     event.preventDefault();
     setError('');
@@ -131,6 +143,13 @@ export default function AuthPortal({ user, onAuthReady, onLibraryReady }) {
       {message && <div className="auth-note" role="status">{message}</div>}
       <button className="auth-submit" disabled={loading} type="submit">{loading ? 'Please wait…' : mode === 'signup' ? 'Create account' : mode === 'reset' ? 'Request password reset' : 'Sign in'} <span>→</span></button>
     </form>
+    {mode !== 'reset' && <>
+      <div className="auth-divider"><span>OR CONTINUE WITH</span></div>
+      <button className="auth-google-button" type="button" disabled={loading} onClick={handleGoogleSignIn}>
+        <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 3.02 13.22l7.98 6.19C12.9 13.72 18.02 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.74 7.18l7.73 6C44.43 37.8 46.98 31.73 46.98 24.55z"/><path fill="#FBBC05" d="M10.99 28.59A14.4 14.4 0 0 1 10.22 24c0-1.6.28-3.14.77-4.59l-7.98-6.19A23.9 23.9 0 0 0 0 24c0 3.87.93 7.55 2.58 10.78l8.41-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.91-5.8l-7.73-6c-2.14 1.44-4.89 2.3-8.18 2.3-5.98 0-11.1-4.22-12.99-9.91l-8.41 6.19C6.09 42.62 14.2 48 24 48z"/></svg>
+        Continue with Google
+      </button>
+    </>}
     <div className="auth-switch-row">
       {mode === 'signin' ? <><button className="auth-text-button" onClick={() => { setMode('reset'); setError(''); setMessage(''); }}>Forgot password?</button><button className="auth-text-button" onClick={() => { setMode('signup'); setError(''); setMessage(''); }}>Create account</button></> : <button className="auth-text-button" onClick={() => { setMode('signin'); setError(''); setMessage(''); }}>Back to sign in</button>}
     </div>
