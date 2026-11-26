@@ -3,7 +3,7 @@ import { pool } from '../database/pool.js';
 
 export async function requireSupabaseUser(request, response, next) {
   const authorization = request.get('authorization') || '';
-  const match = authorization.match(/^Bearer\\s+(.+)$/i);
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
   if (!match) {
     return response.status(401).json({ error: 'A valid Supabase access token is required.' });
   }
