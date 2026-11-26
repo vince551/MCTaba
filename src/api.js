@@ -1,6 +1,6 @@
 import { supabase } from './supabase.js';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://mctaba-test-api.onrender.com').replace(/\\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://mctaba-test-api.onrender.com').replace(/\/$/, '');
 
 async function getUsableSession() {
   if (!supabase) return null;
