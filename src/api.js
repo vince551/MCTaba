@@ -2,18 +2,58 @@ import { supabase } from './supabase.js';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://mctaba-test-api.onrender.com').replace(/\\/$/, '');
 
+async function getUsableSession() {
+  if (!supabase) return null;
+
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+
+  let session = data.session;
+  if (!session) return null;
+
+  // Refresh shortly before expiry so the API never receives a stale access token.
+  if (session.expires_at && session.expires_at * 1000 <= Date.now() + 60_000) {
+    const refreshed = await supabase.auth.refreshSession();
+    if (refreshed.error) throw refreshed.error;
+    session = refreshed.data.session;
+  }
+  return session;
+}
+
+async function sendApiRequest(url, options, session) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...options.headers,
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+    },
+  });
+}
+
 export async function apiRequest(path, { method = 'GET', body, headers = {} } = {}) {
-  const { data: { session } = {} } = supabase ? await supabase.auth.getSession() : {};
-  const response = await fetch(`${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`, {
+  const url = `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  const options = {
     method,
     headers: {
       Accept: 'application/json',
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       ...headers,
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  };
+
+  let session = await getUsableSession();
+  let response = await sendApiRequest(url, options, session);
+
+  // A token can be revoked or expire between the session check and the API call.
+  // Refresh once and retry; never loop indefinitely.
+  if (response.status === 401 && supabase && session) {
+    const refreshed = await supabase.auth.refreshSession();
+    if (!refreshed.error && refreshed.data.session) {
+      session = refreshed.data.session;
+      response = await sendApiRequest(url, options, session);
+    }
+  }
 
   let result = {};
   try { result = await response.json(); } catch { /* response has no JSON body */ }
